@@ -70,8 +70,13 @@ namespace DeskMeter
         {
             Ok = false;
             CpuTemp = CpuPowerW = CpuFanRpm = float.NaN;
-            retryAt = DateTime.Now + RetryAfter;
+            // 値が止まっているだけ (センサー画面を閉じた、試用期限が切れた等) のときは早めに見直す
+            retryAt = DateTime.Now + (stale ? TimeSpan.FromSeconds(10) : RetryAfter);
+            stale = false;
         }
+
+        bool stale;
+        static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         bool Read(IntPtr p)
         {
@@ -82,6 +87,10 @@ namespace DeskMeter
             if (region < HEADER_LEN) return false;
 
             if ((uint)Marshal.ReadInt32(p, 0) != SIGNATURE) return false;   // HWiNFO 終了後は "DEAD" になる
+            // poll_time (UNIX 秒)。HWiNFO が更新を止めると共有メモリは残ったまま古い値になるので、30 秒以上更新が無ければ表示しない
+            long poll = Marshal.ReadInt64(p, 12);
+            long nowUnix = (long)(DateTime.UtcNow - Epoch).TotalSeconds;
+            if (poll > 0 && nowUnix - poll > 30) { stale = true; return false; }
             long sensOff = (uint)Marshal.ReadInt32(p, 20), sensLen = (uint)Marshal.ReadInt32(p, 24), sensN = (uint)Marshal.ReadInt32(p, 28);
             long readOff = (uint)Marshal.ReadInt32(p, 32), readLen = (uint)Marshal.ReadInt32(p, 36), readN = (uint)Marshal.ReadInt32(p, 40);
             if (sensLen < SENSOR_LEN || readLen < READING_LEN || sensN > 4096 || readN > 65536) return false;

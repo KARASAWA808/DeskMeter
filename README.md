@@ -10,7 +10,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 | --- | --- |
 | CPU Meter | 全体と論理プロセッサごとの使用率、実クロック、プロセス/スレッド/ハンドル数、物理コア数、L3。HWiNFO64 連携で温度・電力・ファン |
 | Memory Meter | 使用中（圧縮）、使用可能、コミット、キャッシュ、ページ/非ページプール、ハードウェア予約、ページファイル、メモリ構成（使用中/変更済み/スタンバイ/空き）、種類・速度・スロット数 |
-| GPU Meter | 使用率、温度、VRAM、クロック、消費電力、ファン（NVIDIA、`nvidia-smi` 経由） |
+| GPU Meter | 使用率、温度、VRAM、クロック、消費電力、ファン（NVIDIA、`nvidia-smi` 経由）。NVIDIA 以外の GPU は使用率と VRAM のみ（Windows の GPU カウンター） |
 | Network Meter | 上り/下り速度、ピーク、Ping、起動後と累計の通信量、内部 IP |
 | Drives Meter | 容量と使用率、読み書き速度 |
 | Top CPU / Top Memory Meter | プロセス別の上位 10 件 |
@@ -68,7 +68,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 ## 動作環境
 
 - Windows 10 / 11（64 ビット）。.NET Framework 4.8 が必要です。Windows 10 バージョン 1903 以降と Windows 11 には最初から入っています。それより古い Windows 10 では、Microsoft の .NET Framework 4.8 インストーラーを先に入れてください。
-- GPU パネルは NVIDIA GPU（ドライバー付属の `nvidia-smi.exe`）が必要です。無い環境では「取得できません」と表示されるだけで他は動きます。
+- GPU パネルの温度・クロック・消費電力・ファンは NVIDIA GPU（ドライバー付属の `nvidia-smi.exe`）が必要です。AMD / Intel の GPU では、タスクマネージャーと同じ Windows の GPU カウンター（Windows 10 1709 以降）から使用率と VRAM 使用量だけを表示します。
 - CPU 温度などは Windows 標準では取れないため、HWiNFO64 の「Shared Memory Support」を有効にしたときだけ表示されます（`help\hwinfo.html`）。
 - **Smart App Control** が有効な PC では、署名のない exe は起動できません。その場合は下記の方法でその PC 上でビルドしてください。
 
@@ -94,7 +94,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 1 秒更新で 1 コアの 2% 前後（28 コア機で全体の 0.1% 程度）、メモリ約 100 MB（ソフトウェア描画、GPU デバイスを作りません）。再描画は計測が終わるたびに 1 回だけで、ウィジェットを隠している間とロック中は計測も `nvidia-smi` も止まります。
 
-負荷の内訳を調べたいときは、環境変数 `DESKMETER_PROFILE=1` を付けて起動すると、描画と計測にかかった時間が 30 秒ごとに `deskmeter.log` に書かれます。
+負荷の内訳を調べたいときは、環境変数 `DESKMETER_PROFILE=1` を付けて起動すると、描画と計測にかかった時間が 30 秒ごとに `deskmeter.log` に書かれます。`DESKMETER_NO_SMI=1` を付けると `nvidia-smi` を使わず、NVIDIA 以外の環境と同じ表示になります（表示確認用）。
 
 ## settings.json の項目
 

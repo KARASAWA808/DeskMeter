@@ -56,6 +56,7 @@ namespace DeskMeter
             public string Path;
             public BitmapSource Image;
             public bool Failed;
+            public int DecodeHeight;
         }
 
         readonly ImageSlot bgSlot = new ImageSlot();
@@ -81,8 +82,9 @@ namespace DeskMeter
         {
             string path = ResolvePath(setting);
             if (path == null) { slot.Path = null; slot.Image = null; slot.Failed = false; return null; }
-            if (path == slot.Path) return slot.Failed ? null : slot.Image;
+            if (path == slot.Path && decodeHeight == slot.DecodeHeight) return slot.Failed ? null : slot.Image;   // 大きさを変えたら読み直す (拡大でぼやけないように)
             slot.Path = path;
+            slot.DecodeHeight = decodeHeight;
             slot.Image = null;
             slot.Failed = false;
             try
@@ -260,7 +262,7 @@ namespace DeskMeter
             {
                 double cx = x + (i % 2) * cell + cell / 2, cy = y + (i / 2) * (r * 2 + labelH + 10) + r + 4;
                 Ring(dc, cx, cy, r, thick, double.IsNaN(values[i]) ? 0 : values[i] / 100.0, colors[i]);
-                T(dc, double.IsNaN(values[i]) ? "--" : Math.Round(values[i]).ToString(Inv) + "%", cx, cy - 11, 17, White, 2, true);
+                T(dc, double.IsNaN(values[i]) ? "--" : Math.Round(values[i], MidpointRounding.AwayFromZero).ToString(Inv) + "%", cx, cy - 11, 17, White, 2, true);
                 T(dc, labels[i], cx, cy + r + 4, 12, colors[i], 2);
             }
             return y + 2 * (r * 2 + labelH + 10);

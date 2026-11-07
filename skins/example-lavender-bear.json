@@ -7,7 +7,7 @@
   "FontFamily": "UD Digi Kyokasho NK-R, Yu Gothic UI, Meiryo UI",
   "CornerRadius": 18, "BorderColor": "#CDB8F5",
   "Title": "#4A3A5A", "Text1": "#B5651D", "Text2": "#6B5BD2", "Accent1": "#3FAF80", "Accent2": "#FF8A5C",
-  "Lime": "#3FAF80", "Warn": "#FF8A5C", "Danger": "#E8365D", "Muted": "#9A8FA8", "Dim": "#D8CFE6",
+  "Lime": "#3FAF80", "Warn": "#FF8A5C", "Danger": "#E8365D", "Muted": "#7D7190", "Dim": "#D8CFE6",
   "Magenta": "#D94FB2", "Violet": "#8C6BE0", "Blue": "#5B8DEF",
   "Track": "#EEE4F8", "GraphBg": "#FBF8FF", "Separator": "#CDB8F5", "GraphBorder": "#E0D4F5", "GraphGrid": "#F3ECFF",
   "CalHead": "#E6D8FF", "Today": "#8C6BE0", "CalSun": "#E8365D", "CalSat": "#5B8DEF",

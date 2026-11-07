@@ -231,12 +231,17 @@ namespace DeskMeter
                 string name = Microsoft.VisualBasic.Interaction.InputBox("テーマの名前 (ファイル名になります)", "テーマを保存", "my-theme");
                 if (string.IsNullOrWhiteSpace(name)) return;
                 name = name.Trim();
-                if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || Settings.IsReservedName(name))
                 {
-                    if (tray != null) tray.ShowBalloonTip(4000, AppName, "ファイル名に使えない文字が含まれています。", WF.ToolTipIcon.Warning);
+                    if (tray != null) tray.ShowBalloonTip(4000, AppName, "その名前はファイル名に使えません。", WF.ToolTipIcon.Warning);
                     return;
                 }
-                if (cfg.SaveTheme(name) && tray != null) tray.ShowBalloonTip(3000, AppName, "テーマ「" + name + "」を保存しました。", WF.ToolTipIcon.Info);
+                if (File.Exists(Path.Combine(Settings.ThemeDir, name + ".json")))
+                {
+                    if (WF.MessageBox.Show("テーマ「" + name + "」はすでにあります。上書きしますか?", AppName, WF.MessageBoxButtons.YesNo, WF.MessageBoxIcon.Question, WF.MessageBoxDefaultButton.Button2) != WF.DialogResult.Yes) return;
+                }
+                if (cfg.SaveTheme(name)) { if (tray != null) tray.ShowBalloonTip(3000, AppName, "テーマ「" + name + "」を保存しました。", WF.ToolTipIcon.Info); }
+                else if (tray != null) tray.ShowBalloonTip(5000, AppName, "テーマ「" + name + "」を保存できませんでした。deskmeter.log を確認してください。", WF.ToolTipIcon.Warning);
             }
             catch (Exception ex) { Log.Write("save theme", ex); }
         }
@@ -250,8 +255,11 @@ namespace DeskMeter
                 return;
             }
             cfg.ApplyTheme(t);
+            if (t.Skin != null && !Skin.Exists(t.Skin) && tray != null)
+                tray.ShowBalloonTip(5000, AppName, "テーマのスキン「" + t.Skin + "」が見つからないので Classic で表示します。", WF.ToolTipIcon.Warning);
             ApplyScaleAll();
             ApplySkinAll();
+            WarnSkinProblems();
             RelayoutAll();
             foreach (PanelWindow f in floats) f.RestorePosition();
             ScheduleNextTick();

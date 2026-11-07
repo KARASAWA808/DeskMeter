@@ -288,19 +288,22 @@ namespace DeskMeter
                 marker.EndLineCap = PenLineCap.Round;
                 marker.Freeze();
                 int cols = cfg.Layout.Count;
+                // 立ち絵を左右に並べているときは、列がその分ずれている
+                double offL = cfg.MascotPlacement == "left" ? sideExtra : 0, offR = cfg.MascotPlacement == "right" ? sideExtra : 0;
                 if (dropCol < 0)
                 {
-                    dc.DrawLine(markerBack, new Point(5, 12), new Point(5, contentH - 12));
-                    dc.DrawLine(marker, new Point(5, 12), new Point(5, contentH - 12));
+                    dc.DrawLine(markerBack, new Point(offL + 5, 12), new Point(offL + 5, contentH - 12));
+                    dc.DrawLine(marker, new Point(offL + 5, 12), new Point(offL + 5, contentH - 12));
                 }
                 else if (dropCol >= cols)
                 {
-                    dc.DrawLine(markerBack, new Point(contentW - 5, 12), new Point(contentW - 5, contentH - 12));
-                    dc.DrawLine(marker, new Point(contentW - 5, 12), new Point(contentW - 5, contentH - 12));
+                    double rx = contentW - offR - 5;
+                    dc.DrawLine(markerBack, new Point(rx, 12), new Point(rx, contentH - 12));
+                    dc.DrawLine(marker, new Point(rx, 12), new Point(rx, contentH - 12));
                 }
                 else
                 {
-                    double x = Gap + dropCol * (ColW + Gap), yy = 12 - PanelGap / 2;
+                    double x = Gap + offL + dropCol * (ColW + Gap), yy = 12 - PanelGap / 2;
                     int n = 0;
                     foreach (PanelBox b in boxes)
                     {
@@ -458,6 +461,8 @@ namespace DeskMeter
                     h = top + RowH * 2;
                 }
             }
+            // カードは前のフレームの矩形で敷いているので、配置が変わったフレームではもう 1 回描いて合わせる
+            if (sk.CardBrush != null && BoxesChanged()) Dispatcher.BeginInvoke(new Action(InvalidateVisual));
             DrawMascot(dc);
             if (editMode) DrawEditOverlay(dc);
             if (Scanline != null)
@@ -469,6 +474,14 @@ namespace DeskMeter
                 contentH = h;
                 Dispatcher.BeginInvoke(new Action(delegate { InvalidateMeasure(); InvalidateVisual(); }));
             }
+        }
+
+        bool BoxesChanged()
+        {
+            if (prevBoxes.Count != boxes.Count) return true;
+            for (int i = 0; i < boxes.Count; i++)
+                if (prevBoxes[i].Id != boxes[i].Id || prevBoxes[i].R != boxes[i].R) return true;
+            return false;
         }
 
         // ---------------------------------------------------------------- primitives
@@ -526,7 +539,10 @@ namespace DeskMeter
                     dc.DrawRectangle(fill, null, new Rect(x + bx, y + 1, Math.Min(4, filled - bx), h - 2));
                 return;
             }
-            dc.DrawRoundedRectangle(fill, null, new Rect(x, y, Math.Max(h, w * frac), h), rad, rad);
+            // 幅は値どおりにし、角丸だけ幅に合わせて小さくする (以前は最低でも高さ分を塗っていたので 1〜9% が同じ長さに見えた)
+            double fw = Math.Max(1.5, w * frac);
+            double fr = Math.Min(rad, fw / 2);
+            dc.DrawRoundedRectangle(fill, null, new Rect(x, y, fw, h), fr, fr);
         }
 
         double BarRow(DrawingContext dc, double x, double y, double frac, Brush fill, string label, Brush labelBrush, string value, Brush valueBrush)
@@ -661,9 +677,10 @@ namespace DeskMeter
 
         static string Sig(double v)
         {
-            if (v >= 1000) return v.ToString("0", Inv);
-            if (v >= 100) return v.ToString("0.0", Inv);
-            if (v >= 10) return v.ToString("0.00", Inv);
+            // 丸めで桁が上がる手前で書式を切り替える (999.96 を "1000.0" にしない)
+            if (v >= 999.95) return v.ToString("0", Inv);
+            if (v >= 99.995) return v.ToString("0.0", Inv);
+            if (v >= 9.9995) return v.ToString("0.00", Inv);
             return v.ToString("0.000", Inv);
         }
 
@@ -673,7 +690,7 @@ namespace DeskMeter
         {
             if (double.IsNaN(b)) return "--";   // nvidia-smi が [N/A] を返す環境など
             int i = 0;
-            while (b >= 1024 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
+            while (b >= 1023.5 && i < ByteUnits.Length - 1) { b /= 1024; i++; }   // 1023.6 を "1024 MB" にしない
             return (i == 0 ? b.ToString("0", Inv) : Sig(b)) + " " + ByteUnits[i];
         }
 
@@ -681,7 +698,7 @@ namespace DeskMeter
         {
             if (double.IsNaN(b)) return "--";
             int i = 0;
-            while (b >= 1024 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
+            while (b >= 1023.95 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
             return b.ToString(i == 0 ? "0" : "0.0", Inv) + " " + ByteUnits[i];
         }
 
@@ -695,7 +712,7 @@ namespace DeskMeter
             return (i == 0 ? v.ToString("0", Inv) : Sig(v)) + " " + u[i];
         }
 
-        static string Pct(double v) { return double.IsNaN(v) ? "--%" : Math.Round(v).ToString("0", Inv) + "%"; }
+        static string Pct(double v) { return double.IsNaN(v) ? "--%" : Math.Round(v, MidpointRounding.AwayFromZero).ToString("0", Inv) + "%"; }   // 12.5 → 13% (銀行丸めにしない)
 
         static string N(double v, string fmt, string unit)
         {
@@ -718,7 +735,9 @@ namespace DeskMeter
                 return y + 44;
             }
             T(dc, st.GpuName, x + 46, y + 19, 12.5, Yellow, 0, false, ColW - 46);
-            T(dc, "Clock: " + N(st.GpuClock, "0", " MHz"), x + 46, y + 35, 12.5, Yellow);
+            // nvidia-smi が無い環境では Windows のカウンターから使用率と VRAM だけ取る (クロック・温度・電力は無い)
+            bool basic = float.IsNaN(st.GpuClock);
+            T(dc, basic ? "使用率と VRAM のみ (Windows の GPU カウンター)" : "Clock: " + N(st.GpuClock, "0", " MHz"), x + 46, y + 35, basic ? 11.5 : 12.5, basic ? Gray : Yellow, 0, false, ColW - 46);
             y += 58;
 
             double used = st.VramUsedMB * 1048576.0, total = st.VramTotalMB * 1048576.0;
@@ -727,11 +746,14 @@ namespace DeskMeter
             double vram = total > 0 ? used / total : 0;
             Brush vramBrush = Level(vram, 0.9, 0.97, Cyan);
             y = BarRow(dc, x, y, vram, vramBrush, "VRAM", Cyan, Pct(vram * 100), vramBrush);
-            y = KeyValue(dc, x, y, "Memory Clock:", Orange, N(st.GpuMemClock, "0", " MHz"), Orange);
+            if (!float.IsNaN(st.GpuMemClock)) y = KeyValue(dc, x, y, "Memory Clock:", Orange, N(st.GpuMemClock, "0", " MHz"), Orange);
             Sep(dc, x, y + 3);
             y += 8;
-            Brush tempBrush = Level(st.GpuTemp, 78, 86, Green);   // 高温になったら色で知らせる
-            y = BarRow(dc, x, y, st.GpuTemp / 100.0, tempBrush, "Temp", Green, N(st.GpuTemp, "0", " °C"), tempBrush);
+            if (!float.IsNaN(st.GpuTemp))
+            {
+                Brush tempBrush = Level(st.GpuTemp, 78, 86, Green);   // 高温になったら色で知らせる
+                y = BarRow(dc, x, y, st.GpuTemp / 100.0, tempBrush, "Temp", Green, N(st.GpuTemp, "0", " °C"), tempBrush);
+            }
             y = BarRow(dc, x, y, st.GpuUtil / 100.0, Yellow, "GPU", Yellow, Pct(st.GpuUtil), Yellow);
             if (!float.IsNaN(st.GpuPowerW))
             {
@@ -858,26 +880,29 @@ namespace DeskMeter
             T(dc, string.Format(Inv, "プロセス {0}  スレッド {1}  ハンドル {2}", st.ProcessCount, st.ThreadCount, st.HandleCount), x, y, 11.5, Gray, 0, false, ColW);
             y += 17;
             string topo = st.CpuCores > 0
-                ? string.Format(Ja, "物理 {0} コア / 論理 {1}   L3 {2} MB", st.CpuCores, st.Cores.Length, st.CpuL3KB / 1024)
+                ? string.Format(Ja, "物理 {0} コア / 論理 {1}{2}", st.CpuCores, st.Cores.Length, st.CpuL3KB > 0 ? "   L3 " + (st.CpuL3KB / 1024.0).ToString("0.#", Inv) + " MB" : "")   // WMI が L3 を返さない PC では出さない
                 : string.Format(Ja, "論理プロセッサ {0}", st.Cores.Length);
             T(dc, topo, x, y, 12, Gray, 0, false, ColW);
             y += 17;
             Sep(dc, x, y + 3);
             y += 8;
 
-            if (cfg.CompactCores || st.Cores.Length > 32)   // 論理プロセッサが多いときは縦に収まらないので自動で 2 列
+            // 論理プロセッサが多いときは縦に収まらないので自動で列を増やす (32 まで 1 列、64 まで 2 列、96 まで 3 列、それ以上 4 列)
+            int ccols = st.Cores.Length > 32 ? Math.Min(4, (st.Cores.Length + 31) / 32) : cfg.CompactCores ? 2 : 1;
+            if (ccols > 1)
             {
-                // 2列表示: 左右に並ぶ2つは (Pコアなら) 同じ物理コアのスレッド
-                double cellW = (ColW - 10) / 2;
+                // 左右に並ぶものは (P コアなら) 同じ物理コアのスレッド。3 列以上は幅が足りないのでバーだけにする
+                double cellW = (ColW - 10 * (ccols - 1)) / ccols;
                 for (int i = 0; i < st.Cores.Length; i++)
                 {
                     Brush b = Palette[i % Palette.Length];
-                    double cx = x + (i % 2) * (cellW + 10), cy = y + (i / 2) * RowH;
+                    double cx = x + (i % ccols) * (cellW + 10), cy = y + (i / ccols) * RowH;
+                    if (ccols >= 3) { Bar(dc, cx, cy + 5, cellW, 9, st.Cores[i] / 100.0, b); continue; }
                     Bar(dc, cx, cy + 5, 44, 9, st.Cores[i] / 100.0, b);
                     T(dc, (i + 1).ToString(Inv), cx + 49, cy + 1, 12, b);
                     T(dc, Pct(st.Cores[i]), cx + cellW, cy, FS, b, 1);
                 }
-                y += (st.Cores.Length + 1) / 2 * RowH;
+                y += (st.Cores.Length + ccols - 1) / ccols * RowH;
             }
             else
             {

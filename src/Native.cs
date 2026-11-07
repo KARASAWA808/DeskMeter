@@ -141,6 +141,19 @@ namespace DeskMeter
         [DllImport("ntdll.dll")]
         public static extern int NtQuerySystemInformation(int infoClass, IntPtr buffer, int length, out int returnLength);
 
+        [DllImport("kernel32.dll")]
+        static extern uint GetActiveProcessorCount(ushort group);
+        [DllImport("iphlpapi.dll")]
+        public static extern int GetBestInterface(uint destAddr, out uint index);
+
+        // 全プロセッサグループを通した論理プロセッサ数 (Environment.ProcessorCount は .NET Framework では 1 グループ = 最大 64 で頭打ち)
+        public static int ActiveProcessorCount()
+        {
+            try { int n = (int)GetActiveProcessorCount(0xFFFF); if (n > 0) return n; }
+            catch { }
+            return Environment.ProcessorCount;
+        }
+
         public static string ClassOf(IntPtr h)
         {
             var sb = new StringBuilder(128);
@@ -203,14 +216,14 @@ namespace DeskMeter
         {
             names.Clear();
             values.Clear();
-            if (counter == IntPtr.Zero) return 0;
+            if (counter == IntPtr.Zero || IntPtr.Size != 8) return 0;   // 配列の要素サイズは 64 ビット前提
             int size = bufLen, count;
             int r = PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, ref size, out count, buf);
             if (r == PDH_MORE_DATA)
             {
-                if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf);
+                if (buf != IntPtr.Zero) { Marshal.FreeHGlobal(buf); buf = IntPtr.Zero; bufLen = 0; }   // 確保に失敗しても解放済みの領域を指したままにしない
+                buf = Marshal.AllocHGlobal(size + 1024);
                 bufLen = size + 1024;
-                buf = Marshal.AllocHGlobal(bufLen);
                 size = bufLen;
                 r = PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, ref size, out count, buf);
             }
@@ -279,7 +292,9 @@ namespace DeskMeter
     {
         static readonly object gate = new object();
         static int count;
+        static long windowStart;
         const long MaxBytes = 512 * 1024;   // これを超えていたら追記前に消す (起動をまたいで肥大化しないように)
+        const int MaxPerHour = 200;         // 同じ失敗が毎秒続いてもログを埋め尽くさないように、1 時間あたりの行数を抑える
 
         public static void Write(string where, Exception ex)
         {
@@ -287,7 +302,10 @@ namespace DeskMeter
             {
                 lock (gate)
                 {
-                    if (count++ > 200) return;
+                    long now = (long)Native.GetTickCount64();
+                    if (now - windowStart > 3600000L) { windowStart = now; count = 0; }
+                    if (count++ > MaxPerHour) return;
+                    if (count > MaxPerHour) { where = "log"; ex = new InvalidOperationException("1 時間に " + MaxPerHour + " 行を超えたので、しばらく記録を止めます"); }
                     string path = Path.Combine(AppPaths.Dir, "deskmeter.log");
                     try
                     {

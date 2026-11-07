@@ -118,6 +118,7 @@ namespace DeskMeter
         // プリセットを適用する。切り離しは解除される ("floating" を除く)
         public void ApplyPreset(string name)
         {
+            var wasFloating = new List<string>(Floating);   // 「すべて切り離す」では、すでに切り離してあるパネルも残す
             Floating.Clear();
             switch (name)
             {
@@ -137,6 +138,7 @@ namespace DeskMeter
                     break;
                 case "floating":
                     foreach (List<string> col in Layout) foreach (string id in col) { Floating.Add(id); EnsureFloatPos(id); }
+                    foreach (string id in wasFloating) if (!Floating.Contains(id)) { Floating.Add(id); EnsureFloatPos(id); }
                     Layout = new List<List<string>>();
                     break;
                 default:
@@ -162,6 +164,16 @@ namespace DeskMeter
         }
 
         public static string ThemeDir { get { return Path.Combine(AppPaths.Dir, "themes"); } }
+
+        // CON や COM1 のような Windows の予約名はファイルにできない
+        public static bool IsReservedName(string name)
+        {
+            string n = (name ?? "").Trim().ToUpperInvariant();
+            int dot = n.IndexOf('.');
+            if (dot >= 0) n = n.Substring(0, dot);
+            if (n.Length == 0 || n == "CON" || n == "PRN" || n == "AUX" || n == "NUL") return true;
+            return n.Length == 4 && (n.StartsWith("COM") || n.StartsWith("LPT")) && char.IsDigit(n[3]);
+        }
 
         public static string[] ThemeNames()
         {

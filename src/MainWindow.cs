@@ -179,6 +179,8 @@ namespace DeskMeter
             sampler.Start();
             timer.Start();
             SyncFloating();
+            // Application.Run は未表示のウィンドウを必ず Show するので、全パネルを切り離した配置では表示された直後に隠し直す
+            Loaded += delegate { if (hiddenByFloat && !userHidden && IsVisible) Hide(); };
 
             if (snapshotPath == null)
             {
@@ -667,16 +669,21 @@ namespace DeskMeter
                 foreach (WF.ToolStripMenuItem mi in miShadow.DropDownItems) mi.Checked = (string)mi.Tag == cfg.TextShadow;
                 foreach (WF.ToolStripMenuItem mi in miMascotPlace.DropDownItems) mi.Checked = (string)mi.Tag == cfg.MascotPlacement;
                 foreach (WF.ToolStripMenuItem mi in miMascotSize.DropDownItems) mi.Checked = (int)mi.Tag == cfg.MascotSize;
+                MarkCustom(miMascotSize, cfg.MascotSize + " px", CustomInt);
                 foreach (WF.ToolStripMenuItem mi in miBgImageOpacity.DropDownItems) mi.Checked = (int)mi.Tag == (int)Math.Round(cfg.BackgroundImageOpacity * 100);
+                MarkCustom(miBgImageOpacity, (int)Math.Round(cfg.BackgroundImageOpacity * 100) + "%", CustomInt);
                 FillSkinMenu();   // skins フォルダーを見直す (追加・削除をメニューに反映)
                 foreach (WF.ToolStripItem it in miSkin.DropDownItems)
                 {
                     var mi = it as WF.ToolStripMenuItem;
-                    if (mi != null) mi.Checked = (string)mi.Tag == cfg.Skin;
+                    if (mi != null) mi.Checked = string.Equals((string)mi.Tag, cfg.Skin, StringComparison.OrdinalIgnoreCase);
                 }
                 foreach (WF.ToolStripMenuItem mi in miInterval.DropDownItems) mi.Checked = (int)mi.Tag == cfg.IntervalMs;
+                MarkCustom(miInterval, (cfg.IntervalMs / 1000.0).ToString("0.##") + " 秒", CustomInt);
                 foreach (WF.ToolStripMenuItem mi in miHistory.DropDownItems) mi.Checked = (int)mi.Tag == cfg.HistorySeconds;
+                MarkCustom(miHistory, MeterView.SpanText(cfg.HistorySeconds), CustomInt);
                 foreach (WF.ToolStripMenuItem mi in miHotkey.DropDownItems) mi.Checked = string.Equals((string)mi.Tag, cfg.Hotkey, StringComparison.OrdinalIgnoreCase);
+                MarkCustom(miHotkey, cfg.Hotkey, CustomStr);
                 miHotkey.Text = !string.IsNullOrEmpty(cfg.Hotkey) && !hotkeyRegistered ? "ホットキー (表示/非表示) - 登録できません" : "ホットキー (表示/非表示)";
                 miDesktop.Checked = cfg.Mode == "desktop";
                 miTopmost.Checked = cfg.Mode == "topmost";
@@ -685,9 +692,33 @@ namespace DeskMeter
                 miClick.Checked = cfg.ClickThrough;
                 miAuto.Checked = IsAutoStart();
                 foreach (WF.ToolStripMenuItem mi in miScale.DropDownItems) mi.Checked = (int)mi.Tag == (int)Math.Round(cfg.Scale * 100);
+                MarkCustom(miScale, (int)Math.Round(cfg.Scale * 100) + "%", CustomInt);
                 foreach (WF.ToolStripMenuItem mi in miOpacity.DropDownItems) mi.Checked = (int)mi.Tag == (int)Math.Round(cfg.BackgroundOpacity * 100);
+                MarkCustom(miOpacity, (int)Math.Round(cfg.BackgroundOpacity * 100) + "%", CustomInt);
                 BuildMonitorMenu();
             };
+        }
+
+        // プリセットに無い値 (settings.json で直接書いたもの、既定の不透明度 82% など) のときは、現在値の項目を足してチェックを付ける。
+        // 目印の Tag は項目の Tag と同じ型にしておく (チェック判定で (int)/(string) にキャストするため)
+        static readonly object CustomInt = int.MinValue, CustomStr = "\0custom";
+
+        static void MarkCustom(WF.ToolStripMenuItem menu, string current, object mark)
+        {
+            WF.ToolStripItem old = null;
+            foreach (WF.ToolStripItem it in menu.DropDownItems) if (Equals(it.Tag, mark)) { old = it; break; }
+            if (old != null) menu.DropDownItems.Remove(old);
+            foreach (WF.ToolStripItem it in menu.DropDownItems)
+            {
+                var mi = it as WF.ToolStripMenuItem;
+                if (mi != null && mi.Checked) return;
+            }
+            if (string.IsNullOrEmpty(current)) return;
+            var c = new WF.ToolStripMenuItem(current + " (settings.json の値)");
+            c.Tag = mark;
+            c.Checked = true;
+            c.Enabled = false;
+            menu.DropDownItems.Add(c);
         }
 
         // モニターは抜き差しされるので、メニューを開くたびに作り直す

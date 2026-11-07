@@ -167,12 +167,20 @@ namespace DeskMeter
 
         readonly HwInfo hwinfo = new HwInfo();
 
+        // nvidia-smi が使えないときの代用: Windows の GPU カウンター (使用率と VRAM 使用量だけ。温度や電力は取れない)
+        IntPtr hGpuEng, hGpuMem;
+        bool gpuPdhTried;
+        string gpuLuid;                // 見ているアダプター (LUID)。専用メモリの使用量が最も多いものを選び、以後はそれに固定する
+        readonly List<string> gpuNames = new List<string>();
+        readonly List<double> gpuVals = new List<double>();
+        readonly Dictionary<string, double> gpuByLuid = new Dictionary<string, double>();
+
         IntPtr procBuf = IntPtr.Zero;
         int procBufLen;
         Dictionary<long, long> procTimes = new Dictionary<long, long>();
         long procStamp;
 
-        int pingBusy, weatherBusy;
+        int pingBusy, weatherBusy, drivesBusy;
         DateTime weatherNext = DateTime.MinValue;
         int histSeconds = -1, histInterval = -1;   // 履歴の容量を決めたときの設定値
 
@@ -276,7 +284,7 @@ namespace DeskMeter
                     Safe("gpu", WatchSmi);
                     // 重めの処理は間隔が短くても一定時間ごとにしか行わない
                     if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
-                    if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(30000, interval); }   // 容量は分単位でしか変わらない
+                    if (t0 >= nextDrives) { StartDrives(); nextDrives = t0 + Math.Max(30000, interval); }   // 容量は分単位でしか変わらない
                     if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
                     if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
                     if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
@@ -373,6 +381,7 @@ namespace DeskMeter
                 hCores = pdh.Add(@"\Processor Information(*)\% Processor Utility");
                 if (hCores == IntPtr.Zero) hCores = pdh.Add(@"\Processor Information(*)\% Processor Time");
                 if (hCores == IntPtr.Zero) hCores = pdh.Add(@"\Processor(*)\% Processor Time");
+                if (hCores == IntPtr.Zero) Log.Write("pdh", new InvalidOperationException("プロセッサのカウンターを追加できません (カウンターが壊れているときは管理者で lodctr /R を実行)"));
                 hPerf = pdh.Add(@"\Processor Information(_Total)\% Processor Performance");
                 hFreq = pdh.Add(@"\Processor Information(_Total)\Processor Frequency");
                 hRead = pdh.Add(@"\PhysicalDisk(_Total)\Disk Read Bytes/sec");
@@ -597,6 +606,18 @@ namespace DeskMeter
             }
         }
 
+        // ドライブの問い合わせは応答しないドライブ (切れたネットワーク越しの VHD など) で何十秒も止まることがあるので、計測スレッドから外す
+        void StartDrives()
+        {
+            if (Interlocked.CompareExchange(ref drivesBusy, 1, 0) != 0) return;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try { SampleDrives(); }
+                catch (Exception ex) { Log.Write("drives", ex); }
+                Interlocked.Exchange(ref drivesBusy, 0);
+            });
+        }
+
         void SampleDrives()
         {
             var rows = new List<DriveRow>();
@@ -683,10 +704,22 @@ namespace DeskMeter
         }
 
         // 外に出られるアダプター (ゲートウェイがあり、ループバック・トンネル以外) を列挙し直す
+        // VPN 中は VPN アダプターと物理アダプターの両方にゲートウェイがあり同じ通信を 2 回数えてしまうので、
+        // OS がインターネット向けの経路に使うアダプター (GetBestInterface) だけに絞る。分からなければ従来どおり全部足す
         void RefreshAdapters()
         {
             nicsDirty = false;
             nicsNext = Tick() + 30000;
+            uint best = 0;
+            bool haveBest = false;
+            try { haveBest = Native.GetBestInterface(0x01010101u, out best) == 0; }   // 1.1.1.1 への経路
+            catch { }
+            CollectAdapters(haveBest, best);
+            if (nics.Count == 0 && haveBest) CollectAdapters(false, 0);
+        }
+
+        void CollectAdapters(bool onlyBest, uint best)
+        {
             nics.Clear();
             foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
             {
@@ -696,6 +729,11 @@ namespace DeskMeter
                     if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
                     IPInterfaceProperties props = ni.GetIPProperties();
                     if (props.GatewayAddresses.Count == 0) continue;   // 仮想スイッチなど外に出ないアダプターは除外
+                    if (onlyBest)
+                    {
+                        try { if ((uint)props.GetIPv4Properties().Index != best) continue; }
+                        catch { continue; }
+                    }
                     var a = new NetAdapter();
                     a.Ni = ni;
                     a.Id = ni.Id;
@@ -738,6 +776,7 @@ namespace DeskMeter
         void SampleProcs()
         {
             const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
+            if (IntPtr.Size != 8) return;   // 下のオフセットは 64 ビット版の構造体のもの
             if (procBuf == IntPtr.Zero)
             {
                 procBufLen = 1 << 20;
@@ -747,8 +786,9 @@ namespace DeskMeter
             while ((status = Native.NtQuerySystemInformation(5, procBuf, procBufLen, out need)) == STATUS_INFO_LENGTH_MISMATCH && guard++ < 5)
             {
                 Marshal.FreeHGlobal(procBuf);
+                procBuf = IntPtr.Zero; procBufLen = 0;   // 確保に失敗しても解放済みの領域を指したままにしない
+                procBuf = Marshal.AllocHGlobal(need + (1 << 18));
                 procBufLen = need + (1 << 18);
-                procBuf = Marshal.AllocHGlobal(procBufLen);
             }
             if (status != 0) return;
 
@@ -756,7 +796,9 @@ namespace DeskMeter
             double elapsed = procStamp == 0 ? 0 : (stamp - procStamp) * 1e7 / Stopwatch.Frequency;   // 100ns 単位
             procStamp = stamp;
 
-            int cpus = Environment.ProcessorCount;
+            // 論理プロセッサ数はプロセッサグループをまたいで数える (Environment.ProcessorCount は 64 で頭打ち → 65 以上の PC で使用率が 2 倍になる)
+            int cpus = S.Cores.Length;
+            if (cpus <= 0) cpus = Native.ActiveProcessorCount();
             var times = new Dictionary<long, long>(512);
             var agg = new Dictionary<string, ProcRow>(256, StringComparer.OrdinalIgnoreCase);
             long basePtr = procBuf.ToInt64(), off = 0;
@@ -822,6 +864,8 @@ namespace DeskMeter
         void StartSmi()
         {
             if (smiGaveUp) return;
+            // NVIDIA 以外の環境の表示を NVIDIA 機で確かめる用: nvidia-smi を使わず Windows のカウンターだけにする
+            if (Environment.GetEnvironmentVariable("DESKMETER_NO_SMI") == "1") { smiGaveUp = true; return; }
             // 古いプロセスオブジェクトは置き換える前に片付ける
             Process old = smi;
             smi = null;
@@ -917,6 +961,8 @@ namespace DeskMeter
                 dead = false;
             }
             if (dead && !smiGaveUp && now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
+            // nvidia-smi が動いていない間 (NVIDIA 以外の GPU、または起動に失敗中) は Windows の GPU カウンターで代用する
+            if (smi == null) SampleGpuPdh();
             lock (S)
             {
                 if (S.GpuOk && now - S.GpuStamp > smiIntervalSec * 3000L + 3000) S.GpuOk = false;
@@ -924,6 +970,116 @@ namespace DeskMeter
                 S.GpuUtilHist.Add(S.GpuOk ? S.GpuUtil : 0);
                 S.GpuTempHist.Add(S.GpuOk ? S.GpuTemp : 0);
             }
+        }
+
+        // ---------------------------------------------------------------- GPU (PDH。タスクマネージャーの「3D」と同じ数え方)
+
+        void SampleGpuPdh()
+        {
+            if (!gpuPdhTried)
+            {
+                gpuPdhTried = true;
+                // インスタンスは pid_1234_luid_0x00000000_0x0000C7F1_phys_0_eng_0_engtype_3D のようにプロセスごと。
+                // ワイルドカードで足しておけば Collect のたびに列挙し直される (Windows 10 1709 以降)
+                hGpuEng = pdh.Add(@"\GPU Engine(*)\Utilization Percentage");
+                hGpuMem = pdh.Add(@"\GPU Adapter Memory(*)\Dedicated Usage");
+                if (hGpuEng != IntPtr.Zero) StartGpuStaticInfo();
+                else Log.Write("gpu", new InvalidOperationException("GPU のカウンターがありません (nvidia-smi も無いので GPU パネルは表示できません)"));
+            }
+            if (hGpuEng == IntPtr.Zero) return;
+
+            // アダプターごとの専用メモリ使用量 (インスタンスは luid_0x..._0x..._phys_0)
+            gpuByLuid.Clear();
+            int m = pdh.Array(hGpuMem, gpuNames, gpuVals);
+            for (int i = 0; i < m; i++)
+            {
+                string luid = Luid(gpuNames[i]);
+                if (luid == null || double.IsNaN(gpuVals[i])) continue;
+                double v;
+                gpuByLuid.TryGetValue(luid, out v);
+                gpuByLuid[luid] = Math.Max(v, gpuVals[i]);
+            }
+            if (gpuLuid == null || !gpuByLuid.ContainsKey(gpuLuid))
+            {
+                gpuLuid = null;
+                double most = -1;
+                foreach (KeyValuePair<string, double> kv in gpuByLuid) if (kv.Value > most) { most = kv.Value; gpuLuid = kv.Key; }
+            }
+            double dedicated = double.NaN;
+            if (gpuLuid != null) gpuByLuid.TryGetValue(gpuLuid, out dedicated);
+
+            // 3D エンジンの使用率をプロセス分だけ足す (タスクマネージャーと同じ)。初回は差分が無いので NaN
+            double util = double.NaN;
+            int n = pdh.Array(hGpuEng, gpuNames, gpuVals);
+            for (int i = 0; i < n; i++)
+            {
+                string name = gpuNames[i];
+                if (double.IsNaN(gpuVals[i]) || name.IndexOf("engtype_3D", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (gpuLuid == null || Luid(name) != gpuLuid) continue;
+                util = (double.IsNaN(util) ? 0 : util) + gpuVals[i];
+            }
+            lock (S)
+            {
+                if (gpuLuid == null || double.IsNaN(util)) { S.GpuOk = false; return; }
+                S.GpuUtil = (float)Math.Min(100, util);
+                S.VramUsedMB = double.IsNaN(dedicated) ? float.NaN : (float)(dedicated / 1048576.0);
+                S.GpuTemp = S.GpuClock = S.GpuMemClock = S.GpuPowerW = S.GpuPowerLimitW = S.GpuFan = float.NaN;
+                S.GpuOk = true;
+                S.GpuStamp = Tick();
+            }
+        }
+
+        // インスタンス名から "luid_0x00000000_0x0000C7F1" の部分を取り出す
+        static string Luid(string instance)
+        {
+            int a = instance.IndexOf("luid_", StringComparison.OrdinalIgnoreCase), b = instance.IndexOf("_phys_", StringComparison.OrdinalIgnoreCase);
+            return a < 0 || b <= a ? null : instance.Substring(a, b - a).ToLowerInvariant();
+        }
+
+        // GPU の名前と VRAM の総量はカウンターに無いので、ドライバーがレジストリに書く値から取る (複数あれば VRAM が最も多いもの)
+        void StartGpuStaticInfo()
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string name = null;
+                long mem = 0;
+                try
+                {
+                    using (RegistryKey cls = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"))
+                    {
+                        if (cls != null)
+                            foreach (string sub in cls.GetSubKeyNames())
+                            {
+                                if (sub.Length != 4 || !char.IsDigit(sub[0])) continue;
+                                using (RegistryKey k = cls.OpenSubKey(sub))
+                                {
+                                    if (k == null) continue;
+                                    long sz = RegSize(k.GetValue("HardwareInformation.qwMemorySize"));
+                                    if (sz <= 0) sz = RegSize(k.GetValue("HardwareInformation.MemorySize"));
+                                    string desc = Convert.ToString(k.GetValue("DriverDesc", ""));
+                                    if (desc.Length == 0) continue;
+                                    if (name == null || sz > mem) { name = desc; mem = sz; }
+                                }
+                            }
+                    }
+                }
+                catch (Exception ex) { Log.Write("gpu.registry", ex); }
+                lock (S)
+                {
+                    if (name != null && smi == null) S.GpuName = name;
+                    if (mem > 0 && smi == null) S.VramTotalMB = (float)(mem / 1048576.0);
+                }
+            });
+        }
+
+        static long RegSize(object v)
+        {
+            if (v is long) return (long)v;
+            if (v is int) return (uint)(int)v;
+            byte[] b = v as byte[];
+            if (b != null && b.Length >= 8) return BitConverter.ToInt64(b, 0);
+            if (b != null && b.Length >= 4) return BitConverter.ToUInt32(b, 0);
+            return 0;
         }
 
         void KillSmi()

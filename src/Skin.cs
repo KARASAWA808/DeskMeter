@@ -108,6 +108,14 @@ namespace DeskMeter
             return names.ToArray();
         }
 
+        // 組み込み、または skins フォルダーにあるか (テーマが指すスキンが消えていないかの確認用)
+        public static bool Exists(string name)
+        {
+            if (IsBuiltIn(name)) return true;
+            foreach (string f in FileNames()) if (string.Equals(f, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
         static bool IsBuiltIn(string name)
         {
             foreach (string b in BuiltIn) if (string.Equals(b, name, StringComparison.OrdinalIgnoreCase)) return true;

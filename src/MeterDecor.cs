@@ -51,16 +51,33 @@ namespace DeskMeter
             }
         }
 
+        // 背景グラデーションの、上から t (0〜1) の位置の色。単色ならそのまま
+        Color BackgroundAt(double t)
+        {
+            var g = sk.BackgroundBrush as LinearGradientBrush;
+            if (g == null || g.GradientStops.Count == 0) return sk.Background;
+            GradientStop lo = null, hi = null;
+            foreach (GradientStop gs in g.GradientStops)
+            {
+                if (gs.Offset <= t && (lo == null || gs.Offset >= lo.Offset)) lo = gs;
+                if (gs.Offset >= t && (hi == null || gs.Offset <= hi.Offset)) hi = gs;
+            }
+            if (lo == null) return hi.Color;
+            if (hi == null || hi.Offset <= lo.Offset) return lo.Color;
+            double f = (t - lo.Offset) / (hi.Offset - lo.Offset);
+            return Color.FromRgb((byte)(lo.Color.R + (hi.Color.R - lo.Color.R) * f), (byte)(lo.Color.G + (hi.Color.G - lo.Color.G) * f), (byte)(lo.Color.B + (hi.Color.B - lo.Color.B) * f));
+        }
+
         // ---------------------------------------------------------------- 背景の模様
 
         Drawing decorCache;
-        double decorW, decorH;
+        double decorW, decorH, decorOp = -1;
 
         // 模様は動かないので、窓の大きさが変わるまでは一度描いたものを貼るだけにする
         void DrawDecor(DrawingContext dc)
         {
             if (string.IsNullOrEmpty(sk.Decor)) return;
-            if (decorCache == null || decorW != contentW || decorH != contentH)
+            if (decorCache == null || decorW != contentW || decorH != contentH || decorOp != cfg.BackgroundOpacity)
             {
                 var dv = new DrawingVisual();
                 using (DrawingContext d2 = dv.RenderOpen()) DrawDecorNow(d2);
@@ -69,6 +86,7 @@ namespace DeskMeter
                 decorCache = d;
                 decorW = contentW;
                 decorH = contentH;
+                decorOp = cfg.BackgroundOpacity;
             }
             if (decorCache != null) dc.DrawDrawing(decorCache);
         }
@@ -208,7 +226,9 @@ namespace DeskMeter
             for (int i = 0; i < 5; i++)
             {
                 double yy = horizon - sunR * (0.1 + i * 0.12);
-                dc.DrawRectangle(Alpha(sk.Background, 255), null, new Rect(cx - sunR, yy, sunR * 2, 1.5 + i * 0.8));
+                // 背景と同じ色・同じ不透明度で塗って「切れ目」に見せる (グラデーションならその高さの色)
+                byte a = (byte)Math.Round(Math.Max(1.0 / 255, Math.Min(1, cfg.BackgroundOpacity)) * 255);
+                dc.DrawRectangle(Alpha(BackgroundAt(yy / contentH), a), null, new Rect(cx - sunR, yy, sunR * 2, 1.5 + i * 0.8));
             }
             dc.Pop();
             var pen = new Pen(Alpha(c, 55), 1);
