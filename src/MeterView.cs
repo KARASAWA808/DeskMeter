@@ -170,13 +170,16 @@ namespace DeskMeter
         {
             base.OnMouseLeftButtonUp(e);
             if (dragId == null) return;
-            ReleaseMouseCapture();
+            // ReleaseMouseCapture() は OnLostMouseCapture を同期で呼ぶので、先にドラッグ情報を取り出しておく
             string id = dragId;
+            bool wasDragging = dragging;
+            Point p = e.GetPosition(this);
             dragId = null;
-            if (dragging)
+            dragging = false;
+            ReleaseMouseCapture();
+            if (wasDragging)
             {
-                dragging = false;
-                ComputeDrop(e.GetPosition(this));
+                ComputeDrop(p);
                 ApplyDrop(id);
             }
             InvalidateVisual();
@@ -254,15 +257,26 @@ namespace DeskMeter
             }
             if (dragging && dragId != null)
             {
-                var marker = new Pen(sk.Accent1, 3);
+                // どのスキンでも目立つよう、暗い縁取りの上に太めの線
+                var markerBack = new Pen(Alpha(Colors.Black, 150), 9);
+                markerBack.StartLineCap = PenLineCap.Round;
+                markerBack.EndLineCap = PenLineCap.Round;
+                markerBack.Freeze();
+                var marker = new Pen(sk.Accent1, 5);
                 marker.StartLineCap = PenLineCap.Round;
                 marker.EndLineCap = PenLineCap.Round;
                 marker.Freeze();
                 int cols = cfg.Layout.Count;
                 if (dropCol < 0)
-                    dc.DrawLine(marker, new Point(3, 12), new Point(3, contentH - 12));
+                {
+                    dc.DrawLine(markerBack, new Point(5, 12), new Point(5, contentH - 12));
+                    dc.DrawLine(marker, new Point(5, 12), new Point(5, contentH - 12));
+                }
                 else if (dropCol >= cols)
-                    dc.DrawLine(marker, new Point(contentW - 3, 12), new Point(contentW - 3, contentH - 12));
+                {
+                    dc.DrawLine(markerBack, new Point(contentW - 5, 12), new Point(contentW - 5, contentH - 12));
+                    dc.DrawLine(marker, new Point(contentW - 5, 12), new Point(contentW - 5, contentH - 12));
+                }
                 else
                 {
                     double x = Gap + dropCol * (ColW + Gap), yy = 12 - PanelGap / 2;
@@ -275,6 +289,7 @@ namespace DeskMeter
                         n++;
                     }
                     if (yy < 6) yy = 6;
+                    dc.DrawLine(markerBack, new Point(x, yy), new Point(x + ColW, yy));
                     dc.DrawLine(marker, new Point(x, yy), new Point(x + ColW, yy));
                 }
                 // ドラッグ中のパネル名をカーソルに追従させる
@@ -284,7 +299,8 @@ namespace DeskMeter
                 dc.DrawText(ghost, new Point(gr.X + 7, gr.Y + 2));
             }
             // 案内
-            string hint = "配置編集中: パネルをドラッグして移動 / 左右の外側へドロップで新しい列 / 右クリック→「配置の編集」で終了";
+            string hint = "配置編集中: ドラッグで移動 / 左右の外側へ落とすと新しい列 / 右クリック→「配置の編集」で終了";
+            if (dragging && dragId != null) hint += string.Format(CultureInfo.InvariantCulture, "  [列 {0} / 位置 {1}]", dropCol < 0 ? "新(左)" : dropCol >= cfg.Layout.Count ? "新(右)" : (dropCol + 1).ToString(CultureInfo.InvariantCulture), dropIndex + 1);
             FormattedText ht = Make(hint, 12, Brushes.White, TfB);
             ht.MaxTextWidth = Math.Max(60, contentW - 24);
             var hr = new Rect((contentW - Math.Min(ht.Width, contentW - 24)) / 2 - 8, 4, Math.Min(ht.Width, contentW - 24) + 16, ht.Height + 8);

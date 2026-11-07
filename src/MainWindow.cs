@@ -28,6 +28,16 @@ namespace DeskMeter
                 if (args[i] == "--delay") int.TryParse(args[i + 1], out MainWindow.SnapshotDelay);
             }
             if (Array.IndexOf(args, "--edit") >= 0) MainWindow.SnapshotEdit = true;   // 編集モードの見た目を確認する用
+            // 起動中のインスタンスへの命令 (スクリプトや自動テスト用): 配置編集の切り替え / 設定の再読み込み
+            if (Array.IndexOf(args, "--toggle-edit") >= 0 || Array.IndexOf(args, "--reload") >= 0)
+            {
+                try
+                {
+                    using (EventWaitHandle ev = EventWaitHandle.OpenExisting(Array.IndexOf(args, "--toggle-edit") >= 0 ? MainWindow.EditEventName : MainWindow.ReloadEventName)) ev.Set();
+                }
+                catch (Exception ex) { Log.Write("command", ex); }
+                return;
+            }
 
             AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
             {
@@ -92,6 +102,9 @@ namespace DeskMeter
         IntPtr winEventHook;
         bool hotkeyRegistered;
         EventWaitHandle showEvent;
+        internal const string EditEventName = @"Local\DeskMeter_Cmd_ToggleEdit";   // --toggle-edit (自動テスト・スクリプト用)
+        internal const string ReloadEventName = @"Local\DeskMeter_Cmd_Reload";    // --reload
+        EventWaitHandle editEvent, reloadEvent;
         readonly ManualResetEvent showStop = new ManualResetEvent(false);
 
         WF.NotifyIcon tray;
@@ -732,11 +745,19 @@ namespace DeskMeter
             try
             {
                 showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+                editEvent = new EventWaitHandle(false, EventResetMode.AutoReset, EditEventName);
+                reloadEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ReloadEventName);
                 var t = new Thread(delegate()
                 {
-                    WaitHandle[] hs = { showEvent, showStop };
-                    while (WaitHandle.WaitAny(hs) == 0)
-                        Dispatcher.BeginInvoke(new Action(delegate { Show(); ApplyMode(); }));
+                    WaitHandle[] hs = { showEvent, editEvent, reloadEvent, showStop };
+                    while (true)
+                    {
+                        int i = WaitHandle.WaitAny(hs);
+                        if (i == 0) Dispatcher.BeginInvoke(new Action(delegate { if (userHidden) ToggleVisible(); else { Show(); ApplyMode(); } }));
+                        else if (i == 1) Dispatcher.BeginInvoke(new Action(delegate { SetEditMode(!view.EditMode); }));
+                        else if (i == 2) Dispatcher.BeginInvoke(new Action(ReloadSettings));
+                        else break;
+                    }
                 });
                 t.IsBackground = true;
                 t.Name = "DeskMeter show listener";
@@ -980,6 +1001,8 @@ namespace DeskMeter
             if (hotkeyRegistered) { Native.UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
             showStop.Set();
             if (showEvent != null) { showEvent.Close(); showEvent = null; }
+            if (editEvent != null) { editEvent.Close(); editEvent = null; }
+            if (reloadEvent != null) { reloadEvent.Close(); reloadEvent = null; }
             if (tray != null)
             {
                 tray.Visible = false;
