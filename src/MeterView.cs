@@ -631,6 +631,19 @@ namespace DeskMeter
             T(dc, st.CpuName, x + 46, y + 19, 12.5, Yellow, 0, false, ColW - 46);
             T(dc, "Clock: " + st.CpuMHz.ToString("0", Inv) + " MHz", x + 46, y + 35, 12.5, Yellow);
             y += 58;
+            // HWiNFO の値があるときだけ 1 行足す: "Temp 48 °C  45 W  1200 rpm" (無いときは高さを変えない)
+            if (st.HwInfoOk && (!float.IsNaN(st.CpuTemp) || !float.IsNaN(st.CpuPowerW) || !float.IsNaN(st.CpuFanRpm)))
+            {
+                double hx = x + 46, hy = y - 7;
+                if (!float.IsNaN(st.CpuTemp))
+                {
+                    Brush tb = Level(st.CpuTemp, 80, 90, Green);   // 高温になったら色で知らせる
+                    hx += T(dc, "Temp " + N(st.CpuTemp, "0", " °C"), hx, hy, 12.5, tb) + 8;
+                }
+                if (!float.IsNaN(st.CpuPowerW)) hx += T(dc, N(st.CpuPowerW, "0", " W"), hx, hy, 12.5, Orange) + 8;
+                if (!float.IsNaN(st.CpuFanRpm)) T(dc, N(st.CpuFanRpm, "0", " rpm"), hx, hy, 12.5, Violet);
+                y += 16;
+            }
 
             double ramUsed = st.RamTotal > st.RamAvail ? st.RamTotal - st.RamAvail : 0;
             double pageFree = st.PageTotal > st.PageUsed ? st.PageTotal - st.PageUsed : 0;

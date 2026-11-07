@@ -20,7 +20,7 @@ namespace DeskMeter
         public double? Top;
         // 計測間隔 (ミリ秒)。250〜10000
         public int IntervalMs = 1000;
-        // スキン名: Classic / Cyberpunk / Retro / Light
+        // スキン名: Classic / Cyberpunk / Retro / Light、または skins\*.json のファイル名 (拡張子なし)
         public string Skin = "Classic";
         // 表示倍率 (1.0 = 100%)
         public double Scale = 1.0;

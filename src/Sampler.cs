@@ -102,6 +102,10 @@ namespace DeskMeter
 
         public Weather Weather;
         public string WeatherError;
+
+        // HWiNFO64 の共有メモリから (NaN = 不明)。HwInfoOk = false なら HWiNFO 未起動か Shared Memory Support がオフ
+        public bool HwInfoOk;
+        public float CpuTemp = float.NaN, CpuPowerW = float.NaN, CpuFanRpm = float.NaN;
     }
 
     sealed class Sampler : IDisposable
@@ -124,6 +128,8 @@ namespace DeskMeter
         Process smi;
         IntPtr job = IntPtr.Zero;
         DateTime smiRetryAt = DateTime.MinValue;
+
+        readonly HwInfo hwinfo = new HwInfo();
 
         IntPtr procBuf = IntPtr.Zero;
         int procBufLen;
@@ -164,7 +170,7 @@ namespace DeskMeter
             Init();
             var sw = Stopwatch.StartNew();
             long last = sw.ElapsedMilliseconds;
-            long nextProc = 0, nextDrives = 0, nextPing = 2000;
+            long nextProc = 0, nextDrives = 0, nextPing = 2000, nextHw = 0;
             while (!stopEvent.WaitOne(0))
             {
                 int interval = Math.Max(250, Math.Min(10000, cfg.IntervalMs));
@@ -181,6 +187,7 @@ namespace DeskMeter
                 if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
                 if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(5000, interval); }
                 if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
+                if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
                 if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
 
                 int wait = interval - (int)(sw.ElapsedMilliseconds - t0);
@@ -194,6 +201,19 @@ namespace DeskMeter
         {
             try { a(); }
             catch (Exception ex) { Log.Write(name, ex); }
+        }
+
+        // HWiNFO64 の共有メモリ (無ければ HwInfo 側で 60 秒ごとに再試行)
+        void SampleHwInfo()
+        {
+            hwinfo.Poll();
+            lock (S)
+            {
+                S.HwInfoOk = hwinfo.Ok;
+                S.CpuTemp = hwinfo.CpuTemp;
+                S.CpuPowerW = hwinfo.CpuPowerW;
+                S.CpuFanRpm = hwinfo.CpuFanRpm;
+            }
         }
 
         void Init()

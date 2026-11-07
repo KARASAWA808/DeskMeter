@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskMeter ヘルプ: CPU 温度・電力・ファンを表示する (HWiNFO 連携)</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2933; --bg: #f7f8fa; --muted: #5b6672; --line: #d7dde5; --code: #eceff3; --accent: #0b7285; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6e9ee; --bg: #121417; --muted: #9aa3ad; --line: #2b3138; --code: #1d2126; --accent: #5cc8ff; } }
+  body { margin: 0; padding: 32px 16px 64px; background: var(--bg); color: var(--fg); font: 15px/1.7 "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif; }
+  main { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 36px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--code); }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  a { color: var(--accent); }
+  ol li, ul li { margin: 4px 0; }
+  .note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>CPU 温度・電力・ファンを表示する (HWiNFO 連携)</h1>
+<p class="meta">DeskMeter ヘルプ · 2026-11-07</p>
+
+<h2>概要</h2>
+<p>Windows の標準機能だけでは CPU の温度やパッケージ電力、CPU ファンの回転数は取れません。DeskMeter はこれらを <strong>HWiNFO64</strong> (無料のハードウェア監視ソフト) から受け取ります。HWiNFO64 を起動して「Shared Memory Support」をオンにしておくと、CPU パネルの「Clock:」行の下に次のような行が増えます。</p>
+<pre>Temp 48 °C  45 W  1200 rpm</pre>
+<ul>
+  <li><strong>Temp</strong>: CPU の温度。80 °C 以上で警告色、90 °C 以上で危険色になります。</li>
+  <li><strong>W</strong>: CPU パッケージの消費電力。</li>
+  <li><strong>rpm</strong>: CPU ファンの回転数。</li>
+</ul>
+<p>HWiNFO64 が起動していないとき、または Shared Memory Support がオフのときは、この行は出ず、CPU パネルは従来どおりの高さで表示されます。DeskMeter は 60 秒ごとに HWiNFO64 を探し直すので、あとから起動しても最大 1 分で表示されます。取れた項目だけを表示するので、ファンだけ無い環境では「Temp 48 °C  45 W」のようになります。</p>
+
+<h2>手順1: HWiNFO64 を入れる</h2>
+<ol>
+  <li><a href="https://www.hwinfo.com/download/">https://www.hwinfo.com/download/</a> から HWiNFO64 の Installer 版 (または Portable 版) を入手してインストールします。無料版で構いません。</li>
+  <li>起動時に「Sensors-only」(センサーのみ) を選ぶと、センサー画面だけが開いて軽く動きます。</li>
+</ol>
+<p class="note">この PC には <code>C:\Program Files\HWiNFO64\HWiNFO64.EXE</code> として入っています。</p>
+
+<h2>手順2: Shared Memory Support をオンにする</h2>
+<ol>
+  <li>HWiNFO64 のメイン画面 (または Sensors 画面の歯車アイコン) で <strong>Settings</strong> (設定) を開きます。</li>
+  <li><strong>Main Settings</strong> タブの中にある <strong>Shared Memory Support</strong> にチェックを入れて OK を押します。</li>
+  <li>Sensors (センサー) 画面を開いておきます。センサー画面が開いている間だけ共有メモリが更新されます。最小化して構いません。</li>
+  <li>DeskMeter の CPU パネルに、最大 1 分以内に「Temp ...」の行が出れば完了です。</li>
+</ol>
+<p>毎回手で起動するのが面倒なら、HWiNFO64 の Settings で <strong>Auto Start</strong> (Windows 起動時に開始) と <strong>Minimize Sensors on Startup</strong> / <strong>Minimize Sensors instead of closing</strong> をオンにしておくと、ログオン時に自動で裏で動きます。</p>
+
+<h2>無料版の 12 時間制限について</h2>
+<p>無料版の HWiNFO64 では、Shared Memory Support は <strong>オンにしてから 12 時間で自動的にオフ</strong>になります (画面に通知が出ます)。切れると DeskMeter 側の行は消えます。もう一度 Settings で Shared Memory Support にチェックを入れ直せば、また 12 時間使えます。HWiNFO64 自体を再起動したときも、設定が残っていればそこから 12 時間です。</p>
+<p>制限なしで使い続けるには、有料の <strong>HWiNFO64 Pro</strong> ライセンスが必要です。DeskMeter の側に設定はありません。</p>
+
+<h2>どの値を取っているか</h2>
+<p>HWiNFO64 のセンサー画面に出ている名前で、次の順に探します。環境によって無い項目は飛ばします。</p>
+<table>
+  <tr><th>表示</th><th>探す場所</th><th>優先順位</th></tr>
+  <tr><td>Temp</td><td>名前に「CPU」を含むセンサーの温度</td><td>CPU Package → CPU (Tctl/Tdie) → Core Max → CPU Die (average) → それらが無ければ最初の温度</td></tr>
+  <tr><td>W</td><td>名前に「CPU」を含むセンサーの電力</td><td>CPU Package Power → 名前に「Package Power」を含むもの → 最初の電力</td></tr>
+  <tr><td>rpm</td><td>すべてのセンサーのファン</td><td>ラベルが「CPU」ちょうど → 「CPU」で始まるもの → 「CPU」を含むもの</td></tr>
+</table>
+<p>HWiNFO64 でラベルを自分で付け替えている場合は、付け替えた後の名前で探します。読み取りは 5 秒ごとです。</p>
+
+<h2>うまくいかないとき</h2>
+<table>
+  <tr><th>症状</th><th>原因</th><th>対処</th></tr>
+  <tr><td>行が出ない</td><td>HWiNFO64 が起動していない、Shared Memory Support がオフ、Sensors 画面を開いていない</td><td>HWiNFO64 を起動して Sensors 画面を開き、Settings の Shared Memory Support を確認する。その後 1 分待つ</td></tr>
+  <tr><td>出ていたのに消えた</td><td>無料版の 12 時間制限で Shared Memory Support が切れた。または HWiNFO64 を閉じた</td><td>HWiNFO64 の Settings でもう一度 Shared Memory Support をオンにする</td></tr>
+  <tr><td>温度が思っていたセンサーと違う</td><td>CPU センサーに「CPU Package」などの名前が無く、最初の温度を使っている</td><td>HWiNFO64 の Sensors 画面で使いたい項目を右クリック →「Rename」で「CPU Package」に変える</td></tr>
+  <tr><td>ファンが出ない</td><td>マザーボードのセンサーに「CPU」を含むファンのラベルが無い (「Fan1」などになっている)</td><td>HWiNFO64 で該当のファンを「CPU」にリネームする</td></tr>
+  <tr><td>温度が °F で出る</td><td>HWiNFO64 の設定で華氏表示にしている</td><td>DeskMeter は数値をそのまま出すので、HWiNFO64 側を摂氏に戻す</td></tr>
+</table>
+</main>
+</body>
+</html>
