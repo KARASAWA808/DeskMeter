@@ -59,12 +59,21 @@ namespace DeskMeter
         public float Cpu;
     }
 
+    // 1日分の予報 (明日以降)
+    sealed class DayForecast
+    {
+        public DateTime Date;
+        public int Code;
+        public double Hi, Lo, PrecipProb;
+    }
+
     sealed class Weather
     {
         public double Temp, Feels, Hi, Lo, Humidity, Pressure, Wind, WindDir, Uv, PrecipProb;
         public int Code;
         public bool IsDay;
         public DateTime Sunrise, Sunset, Updated;
+        public List<DayForecast> Days = new List<DayForecast>();   // 明日から最大3日分
     }
 
     // サンプラースレッドと描画スレッドで共有する状態。読み書きは lock(このオブジェクト) で行う。
@@ -621,9 +630,9 @@ namespace DeskMeter
             string url = string.Format(CultureInfo.InvariantCulture,
                 "https://api.open-meteo.com/v1/forecast?latitude={0:0.###}&longitude={1:0.###}" +
                 "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m" +
-                "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max" +
+                "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max" +
                 "&hourly=precipitation_probability&forecast_hours=1" +
-                "&timezone=auto&forecast_days=1", cfg.Latitude, cfg.Longitude);
+                "&timezone=auto&forecast_days=4", cfg.Latitude, cfg.Longitude);
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Timeout = 10000;
             req.UserAgent = "DeskMeter/1.0";
@@ -656,8 +665,27 @@ namespace DeskMeter
             if (double.IsNaN(w.PrecipProb)) w.PrecipProb = D(First(daily, "precipitation_probability_max"));
             w.Sunrise = Time(First(daily, "sunrise"));
             w.Sunset = Time(First(daily, "sunset"));
+            // 明日から3日分の予報 (daily の添字 1〜3)
+            object[] dates = Get(daily, "time") as object[];
+            for (int i = 1; i <= 3 && dates != null && i < dates.Length; i++)
+            {
+                var f = new DayForecast();
+                f.Date = Time(dates[i]);
+                double c = D(At(daily, "weather_code", i));
+                f.Code = double.IsNaN(c) ? 0 : (int)c;
+                f.Hi = D(At(daily, "temperature_2m_max", i));
+                f.Lo = D(At(daily, "temperature_2m_min", i));
+                f.PrecipProb = D(At(daily, "precipitation_probability_max", i));
+                if (f.Date != DateTime.MinValue) w.Days.Add(f);
+            }
             w.Updated = DateTime.Now;
             return w;
+        }
+
+        static object At(Dictionary<string, object> d, string key, int i)
+        {
+            object[] a = Get(d, key) as object[];
+            return a != null && i < a.Length ? a[i] : null;
         }
 
         static object Get(Dictionary<string, object> d, string key)

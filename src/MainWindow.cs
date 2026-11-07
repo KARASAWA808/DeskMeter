@@ -438,6 +438,7 @@ namespace DeskMeter
 
             menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add(Item("天気を今すぐ更新", delegate { sampler.RefreshWeatherNow(); }));
+            menu.Items.Add(Item("天気の場所を設定...", ShowLocationDialog));
             miAuto = Item("Windows 起動時に開始", ToggleAutoStart);
             menu.Items.Add(miAuto);
             menu.Items.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
@@ -637,6 +638,20 @@ namespace DeskMeter
                 Process.Start(file == null ? dir : Path.Combine(dir, file));
             }
             catch (Exception ex) { Log.Write("open help", ex); }
+        }
+
+        // 天気の場所 (緯度・経度・表示名) を設定するダイアログ
+        void ShowLocationDialog()
+        {
+            try
+            {
+                var dlg = new LocationDialog(cfg);
+                if (dlg.ShowDialog() != true) return;
+                cfg.Save();
+                sampler.RefreshWeatherNow();
+                view.InvalidateVisual();
+            }
+            catch (Exception ex) { Log.Write("location dialog", ex); }
         }
 
         void OpenSettings()
