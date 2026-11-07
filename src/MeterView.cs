@@ -774,7 +774,18 @@ namespace DeskMeter
             Header(dc, x, y, "", TileTeal, "Network Meter", null);
             T(dc, "Peak: " + Bits(st.PeakBps), x + 46, y + 19, 12.5, Lime);
             y += 44;
-            if (cfg.ShowIp) y = KeyValue(dc, x, y, "Int IP:", Cyan, st.IntIp ?? "未接続", Cyan);
+            if (cfg.ShowIp)
+            {
+                string ip = st.IntIp ?? "未接続";
+                if (ip.IndexOf(':') >= 0)
+                {
+                    // IPv6 は長いので小さい文字で、入らなければ省略する
+                    T(dc, "Int IP:", x, y, FS, Cyan);
+                    T(dc, ip, x + ColW, y + 2, 10.5, Cyan, 1, false, ColW - 52);
+                    y += RowH;
+                }
+                else y = KeyValue(dc, x, y, "Int IP:", Cyan, ip, Cyan);
+            }
             y = KeyValue(dc, x, y, "Ping:", Yellow, st.PingMs >= 0 ? st.PingMs.ToString(Inv) + " ms" : "--", Yellow);
             y = UpDown(dc, x, y, Bits(st.UpBps), Bytes(st.UpBps) + "/s", Bits(st.DownBps), Bytes(st.DownBps) + "/s") + 4;
             var netRect = new Rect(x, y, ColW, 44);

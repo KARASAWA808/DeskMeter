@@ -173,7 +173,7 @@ namespace DeskMeter
             }));
             menu.Items.Add(miDetach);
 
-            miPresets = new WF.ToolStripMenuItem("配置プリセット");
+            miPresets = new WF.ToolStripMenuItem("配置プリセット (表示する項目も変わります)");
             foreach (string name in Settings.PresetNames)
             {
                 string n = name;

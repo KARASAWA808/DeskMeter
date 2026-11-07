@@ -68,7 +68,7 @@ namespace DeskMeter
 
             // 1行目: 説明
             var hint = new TextBlock();
-            hint.Text = "地名を入力して検索し、候補を選ぶか、緯度・経度を直接入力してください。";
+            hint.Text = "地名を入力して「検索」(または Enter) を押し、候補を選ぶか、緯度・経度を直接入力してください。";
             hint.TextWrapping = TextWrapping.Wrap;
             hint.Margin = new Thickness(0, 0, 0, 8);
             Put(root, hint, 0);

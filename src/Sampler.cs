@@ -738,10 +738,13 @@ namespace DeskMeter
                     var a = new NetAdapter();
                     a.Ni = ni;
                     a.Id = ni.Id;
+                    string v6 = null;
                     foreach (UnicastIPAddressInformation u in props.UnicastAddresses)
                     {
                         if (u.Address.AddressFamily == AddressFamily.InterNetwork) { a.Ip = u.Address.ToString(); break; }
+                        if (v6 == null && u.Address.AddressFamily == AddressFamily.InterNetworkV6 && !u.Address.IsIPv6LinkLocal && !u.Address.IsIPv6SiteLocal) v6 = u.Address.ToString();
                     }
+                    if (a.Ip == null) a.Ip = v6;   // IPv6 だけの回線では「未接続」にしない
                     nics.Add(a);
                 }
                 catch (Exception ex) { Log.Write("net." + ni.Name, ex); }   // 1 つのアダプターで失敗しても他は数える

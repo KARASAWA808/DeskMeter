@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -95,6 +96,7 @@ namespace DeskMeter
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
                 if (decodeHeight > 0) bmp.DecodePixelHeight = decodeHeight;
+                bmp.Rotation = ExifRotation(path);
                 bmp.UriSource = new Uri(path, UriKind.Absolute);
                 bmp.EndInit();
                 bmp.Freeze();
@@ -114,6 +116,31 @@ namespace DeskMeter
                 }
             }
             return slot.Image;
+        }
+
+        // JPEG の EXIF の向き。スマホの写真は横倒しのまま保存して向きだけ記録してあることが多く、そのままでは横倒しに出る
+        static Rotation ExifRotation(string path)
+        {
+            try
+            {
+                string ext = Path.GetExtension(path).ToLowerInvariant();
+                if (ext != ".jpg" && ext != ".jpeg") return Rotation.Rotate0;
+                using (FileStream fs = File.OpenRead(path))
+                {
+                    BitmapDecoder dec = BitmapDecoder.Create(fs, BitmapCreateOptions.DelayCreation | BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.None);
+                    var meta = dec.Frames[0].Metadata as BitmapMetadata;
+                    const string q = "/app1/ifd/{ushort=274}";
+                    object o = meta != null && meta.ContainsQuery(q) ? meta.GetQuery(q) : null;
+                    switch (o == null ? 1 : Convert.ToInt32(o, CultureInfo.InvariantCulture))
+                    {
+                        case 3: return Rotation.Rotate180;
+                        case 6: return Rotation.Rotate90;
+                        case 8: return Rotation.Rotate270;
+                        default: return Rotation.Rotate0;
+                    }
+                }
+            }
+            catch { return Rotation.Rotate0; }
         }
 
         // 背景画像を窓いっぱいに (cover) 敷く

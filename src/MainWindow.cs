@@ -651,6 +651,11 @@ namespace DeskMeter
             menu.Items.Add(miAuto);
             menu.Items.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
             menu.Items.Add(Item("設定ファイルを再読み込み", ReloadSettings));
+            menu.Items.Add(Item("設定を初期値に戻す...", ResetSettings));
+            var folders = new WF.ToolStripMenuItem("フォルダーとログを開く");
+            folders.DropDownItems.Add(Item("DeskMeter のフォルダー (設定・スキン・テーマ)", delegate { OpenPath(AppPaths.Dir); }));
+            folders.DropDownItems.Add(Item("ログ (deskmeter.log)", OpenLog));
+            menu.Items.Add(folders);
             var help = new WF.ToolStripMenuItem("ヘルプ");
             help.DropDownItems.Add(Item("天気の場所を設定する (地名検索 / 緯度・経度)", delegate { OpenHelp("weather-location.html"); }));
             help.DropDownItems.Add(Item("スキンの作り方 (skins フォルダー)", delegate { OpenHelp("custom-skin.html"); }));
@@ -1094,6 +1099,52 @@ namespace DeskMeter
                 InvalidateAll();
             }
             catch (Exception ex) { Log.Write("location dialog", ex); }
+        }
+
+        void OpenPath(string path)
+        {
+            try { Process.Start("explorer.exe", "\"" + path + "\""); }
+            catch (Exception ex) { Log.Write("open folder", ex); }
+        }
+
+        void OpenLog()
+        {
+            try
+            {
+                string path = Path.Combine(AppPaths.Dir, "deskmeter.log");
+                if (!File.Exists(path))
+                {
+                    if (tray != null) tray.ShowBalloonTip(3000, AppName, "ログはまだありません (問題が起きたときだけ作られます)。", WF.ToolTipIcon.Info);
+                    return;
+                }
+                Process.Start("notepad.exe", "\"" + path + "\"");
+            }
+            catch (Exception ex) { Log.Write("open log", ex); }
+        }
+
+        // 設定を初期値に戻す。元のファイルは settings.backup-日時.json として残す
+        void ResetSettings()
+        {
+            if (WF.MessageBox.Show("設定を初期値に戻しますか?\n位置・配置・スキン・画像・天気の場所などがすべて初期値になります。\n元の settings.json は settings.backup-日時.json として同じフォルダーに残します。",
+                AppName, WF.MessageBoxButtons.YesNo, WF.MessageBoxIcon.Warning, WF.MessageBoxDefaultButton.Button2) != WF.DialogResult.Yes) return;
+            try
+            {
+                if (File.Exists(Settings.FilePath))
+                {
+                    string backup = Path.Combine(AppPaths.Dir, "settings.backup-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
+                    File.Copy(Settings.FilePath, backup, true);
+                    File.Delete(Settings.FilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("reset settings", ex);
+                if (tray != null) tray.ShowBalloonTip(5000, AppName, "設定を初期化できませんでした。deskmeter.log を確認してください。", WF.ToolTipIcon.Warning);
+                return;
+            }
+            ReloadSettings();   // ファイルが無いので既定値が読み込まれる
+            cfg.Save();
+            if (tray != null) tray.ShowBalloonTip(4000, AppName, "設定を初期値に戻しました。", WF.ToolTipIcon.Info);
         }
 
         void OpenSettings()
