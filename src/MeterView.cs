@@ -775,6 +775,9 @@ namespace DeskMeter
         {
             DateTime today = DateTime.Today;
             T(dc, today.ToString("yyyy年 M月", Ja), x + ColW / 2, y, 14.5, White, 2, true);
+            // 今日が祝日なら見出しの右に祝日名を小さく出す
+            string todayHol = cfg.ShowHolidays ? Holidays.Name(today) : null;
+            if (todayHol != null) T(dc, todayHol, x + ColW, y + 4, 11, sk.CalSun, 1, true, ColW / 3);
             y += 25;
             double cw = ColW / 7, ch = 23;
             string[] names = { "日", "月", "火", "水", "木", "金", "土" };
@@ -800,7 +803,8 @@ namespace DeskMeter
                     }
                     else
                     {
-                        Brush b = d.Month != today.Month ? Dim : c == 0 ? sk.CalSun : c == 6 ? sk.CalSat : Cyan;
+                        bool hol = cfg.ShowHolidays && Holidays.IsHoliday(d);
+                        Brush b = d.Month != today.Month ? Dim : c == 0 || hol ? sk.CalSun : c == 6 ? sk.CalSat : Cyan;
                         T(dc, d.Day.ToString(Inv), cx, cy + 1, 13.5, b, 2);
                     }
                 }
@@ -866,10 +870,37 @@ namespace DeskMeter
             double tw = T(dc, age.ToString("0.0", Inv) + "  " + MoonName(age), x + ColW, y, FS, Gray, 1);
             MoonDisc(dc, x + ColW - tw - 14, y + 9.5, 7, moonPhase);
             y += RowH + 3;
+            if (cfg.ShowForecast && w.Days.Count > 0)
+            {
+                Sep(dc, x, y);
+                y += 6;
+                y = DrawForecast(dc, x, y, w.Days, moonPhase);
+            }
             Sep(dc, x, y);
             y += 4;
             T(dc, "更新: " + w.Updated.ToString("M/d H:mm", Inv) + "  (Open-Meteo)", x + ColW / 2, y, 11.5, Cyan, 2);
             return y + 14;
+        }
+
+        // 明日からの予報を3列で表示: 曜日 / 小さい天気アイコン / 最高・最低 / 降水確率
+        double DrawForecast(DrawingContext dc, double x, double y, List<DayForecast> days, double moonPhase)
+        {
+            const double iconS = 30;
+            int n = Math.Min(3, days.Count);
+            double cw = ColW / 3;
+            for (int i = 0; i < n; i++)
+            {
+                DayForecast f = days[i];
+                double cx = x + i * cw + cw / 2;
+                string hol = cfg.ShowHolidays ? Holidays.Name(f.Date) : null;
+                Brush dayBrush = f.Date.DayOfWeek == DayOfWeek.Sunday || hol != null ? sk.CalSun
+                    : f.Date.DayOfWeek == DayOfWeek.Saturday ? sk.CalSat : White;
+                T(dc, f.Date.ToString("M/d (ddd)", Ja), cx, y, 11.5, dayBrush, 2, true);
+                WeatherIcon(dc, cx - iconS / 2, y + 15, iconS, f.Code, true, moonPhase);
+                T(dc, N(f.Hi, "0", "°") + " / " + N(f.Lo, "0", "°"), cx, y + 47, 11.5, Cyan, 2);
+                T(dc, N(f.PrecipProb, "0", "%"), cx, y + 61, 11, Lime, 2);
+            }
+            return y + 78;
         }
 
         const double Synodic = 29.530588853;

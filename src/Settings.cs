@@ -49,6 +49,10 @@ namespace DeskMeter
         public double Latitude = 35.08;
         public double Longitude = 137.16;
         public string LocationName = "愛知県 豊田市";
+        // 天気パネルに明日から3日分の予報を出す
+        public bool ShowForecast = true;
+        // カレンダーに日本の祝日を表示する
+        public bool ShowHolidays = true;
 
         public static string FilePath
         {
