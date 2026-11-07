@@ -12,6 +12,7 @@ namespace DeskMeter
     sealed partial class Skin
     {
         public string Name;
+        public int Warnings;             // skins\*.json から読んだときに見つかった問題の数 (組み込みは 0)
         public string FontFamily = "Segoe UI, Yu Gothic UI, Meiryo UI";
         public double CornerRadius = 10;
         public Color Background = Hex("#08090C");
@@ -196,13 +197,51 @@ namespace DeskMeter
         }
 
         // 壊れた JSON は deskmeter.log に書いて null を返す。色の書き間違いは項目ごとに Classic の値で代用する
+        static readonly string[] BarStyles = { "flat", "pill", "segment" };
+        static readonly string[] Decors = { "", "sakura", "hearts", "stars", "bubbles", "grid", "rain", "dots", "lines" };
+        static readonly string[] Mascots = { "", "cat", "bunny", "bear" };
+
+        // 選択肢から選ぶ項目。候補に無い値はログに残して既定のまま
+        static string Choice(FileCtx ctx, string field, string text, string[] allowed, string fallback)
+        {
+            if (text == null) return fallback;
+            string v = text.Trim().ToLowerInvariant();
+            if (Array.IndexOf(allowed, v) >= 0) return v;
+            ctx.Warn(field, "\"" + text + "\" は使えません。候補: " + string.Join(" / ", allowed).Trim(' ', '/'));
+            return fallback;
+        }
+
+        // 書かれたフォント名のどれか 1 つでも入っているか (無ければ WPF が既定フォントで代用するので、その旨をログに残す)
+        static bool FontInstalled(string families)
+        {
+            try
+            {
+                foreach (string raw in families.Split(','))
+                {
+                    string want = raw.Trim();
+                    if (want.Length == 0) continue;
+                    foreach (FontFamily ff in Fonts.SystemFontFamilies)
+                    {
+                        if (string.Equals(ff.Source, want, StringComparison.OrdinalIgnoreCase)) return true;
+                        foreach (string n in ff.FamilyNames.Values) if (string.Equals(n, want, StringComparison.OrdinalIgnoreCase)) return true;
+                    }
+                }
+                return false;
+            }
+            catch { return true; }
+        }
+
         public static Skin FromFile(string path)
         {
             SkinFile f;
+            Dictionary<string, object> raw = null;
             try
             {
-                f = new JavaScriptSerializer().Deserialize<SkinFile>(File.ReadAllText(path, Encoding.UTF8));
+                string json = File.ReadAllText(path, Encoding.UTF8);
+                var ser = new JavaScriptSerializer();
+                f = ser.Deserialize<SkinFile>(json);
                 if (f == null) throw new FormatException("JSON が空です");
+                raw = ser.DeserializeObject(json) as Dictionary<string, object>;
             }
             catch (Exception ex)
             {
@@ -214,7 +253,17 @@ namespace DeskMeter
                 var ctx = new FileCtx(Path.GetFileName(path));
                 Skin s = Classic();
                 s.Name = Path.GetFileNameWithoutExtension(path);
-                if (!string.IsNullOrWhiteSpace(f.FontFamily)) s.FontFamily = f.FontFamily.Trim();
+                // 綴りを間違えたキーは黙って無視されるので、知らせる
+                if (raw != null)
+                {
+                    foreach (string key in raw.Keys)
+                        if (typeof(SkinFile).GetField(key) == null) ctx.Warn(key, "知らないキーです (綴りを確認してください)");
+                }
+                if (!string.IsNullOrWhiteSpace(f.FontFamily))
+                {
+                    s.FontFamily = f.FontFamily.Trim();
+                    if (!FontInstalled(s.FontFamily)) ctx.Warn("FontFamily", "\"" + s.FontFamily + "\" はこの PC に入っていないので既定のフォントで表示します");
+                }
                 if (f.CornerRadius.HasValue) s.CornerRadius = Math.Max(0, Math.Min(40, f.CornerRadius.Value));
                 s.Background = ctx.Color("Background", f.Background, s.Background);
                 if (!string.IsNullOrEmpty(f.BorderColor))
@@ -245,17 +294,18 @@ namespace DeskMeter
                 // 見た目の拡張
                 s.BackgroundBrush = ctx.Brush("BackgroundGradient", f.BackgroundGradient, null);
                 if (f.TileRadius.HasValue) s.TileRadius = Math.Max(0, Math.Min(18, f.TileRadius.Value));
-                if (!string.IsNullOrWhiteSpace(f.BarStyle)) s.BarStyle = f.BarStyle.Trim().ToLowerInvariant();
+                s.BarStyle = Choice(ctx, "BarStyle", f.BarStyle, BarStyles, s.BarStyle);
                 if (f.GraphArea.HasValue) s.GraphArea = f.GraphArea.Value;
-                if (f.Decor != null) s.Decor = f.Decor.Trim().ToLowerInvariant();
+                s.Decor = Choice(ctx, "Decor", f.Decor, Decors, s.Decor);
                 s.DecorColor = ctx.Color("DecorColor", f.DecorColor, s.DecorColor);
-                if (f.Mascot != null) s.Mascot = f.Mascot.Trim().ToLowerInvariant();
+                s.Mascot = Choice(ctx, "Mascot", f.Mascot, Mascots, s.Mascot);
                 s.MascotBody = ctx.Brush("MascotBody", f.MascotBody, s.MascotBody);
                 s.MascotAccent = ctx.Brush("MascotAccent", f.MascotAccent, s.MascotAccent);
                 s.MascotEye = ctx.Brush("MascotEye", f.MascotEye, s.MascotEye);
                 s.CardBrush = ctx.Brush("Card", f.Card, null);
                 Brush cb = ctx.Brush("CardBorder", f.CardBorder, null); if (cb != null) s.CardBorder = P(cb, 1);
                 if (f.CardRadius.HasValue) s.CardRadius = Math.Max(0, Math.Min(30, f.CardRadius.Value));
+                s.Warnings = ctx.Warnings;
                 return s;
             }
             catch (Exception ex)
@@ -270,12 +320,19 @@ namespace DeskMeter
         {
             readonly string file;
             public FileCtx(string file) { this.file = file; }
+            public int Warnings;   // ログに残した問題の数 (メニューで選んだときに知らせる)
+
+            public void Warn(string field, string message)
+            {
+                Warnings++;
+                Log.Write("Skin " + file + " " + field, new FormatException(message));
+            }
 
             public Color Color(string field, string text, Color fallback)
             {
                 if (string.IsNullOrWhiteSpace(text)) return fallback;
                 try { return Hex(text.Trim()); }
-                catch (Exception ex) { Log.Write("Skin " + file + " " + field + " = " + text, ex); return fallback; }
+                catch (Exception ex) { Warnings++; Log.Write("Skin " + file + " " + field + " = " + text, ex); return fallback; }
             }
 
             // "#RRGGBB" で単色、"#RRGGBB,#RRGGBB" で上下のグラデーション
@@ -288,7 +345,7 @@ namespace DeskMeter
                     if (parts.Length >= 2) return Gradient(parts[0].Trim(), parts[1].Trim());
                     return B(text.Trim());
                 }
-                catch (Exception ex) { Log.Write("Skin " + file + " " + field + " = " + text, ex); return fallback; }
+                catch (Exception ex) { Warnings++; Log.Write("Skin " + file + " " + field + " = " + text, ex); return fallback; }
             }
 
             // 配列。count > 0 ならその個数が必要。ダメなら null (既定のまま)
@@ -297,6 +354,7 @@ namespace DeskMeter
                 if (items == null || items.Length == 0) return null;
                 if (count > 0 && items.Length != count)
                 {
+                    Warnings++;
                     Log.Write("Skin " + file + " " + field, new FormatException(count + " 色必要ですが " + items.Length + " 色です"));
                     return null;
                 }

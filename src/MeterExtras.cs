@@ -60,6 +60,8 @@ namespace DeskMeter
 
         readonly ImageSlot bgSlot = new ImageSlot();
         readonly ImageSlot mascotSlot = new ImageSlot();
+        // 画像が読めなかったときに (UI スレッドで) 通知する: (パス, 理由)
+        public static event Action<string, string> ImageFailed;
         double sideExtra;   // 立ち絵を横に並べるときに増える幅
 
         string ResolvePath(string p)
@@ -100,6 +102,14 @@ namespace DeskMeter
             {
                 slot.Failed = true;
                 Log.Write("image " + path, ex);
+                Action<string, string> h = ImageFailed;
+                if (h != null)
+                {
+                    string reason = ex is FileNotFoundException ? "ファイルがありません"
+                        : ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ? "この形式は開けません (PNG / JPEG / GIF / BMP が使えます。WebP は対応コーデックが入っているときだけ)"
+                        : ex.Message;
+                    h(path, reason);
+                }
             }
             return slot.Image;
         }

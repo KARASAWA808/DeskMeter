@@ -191,6 +191,9 @@ namespace DeskMeter
                 StartSettingsWatcher();
                 if (Settings.BrokenBackupPath != null && tray != null)
                     tray.ShowBalloonTip(8000, AppName, "settings.json が読めなかったので既定の設定で起動しました。元のファイルは " + Path.GetFileName(Settings.BrokenBackupPath) + " に退避してあります。", WF.ToolTipIcon.Warning);
+                else WarnSettingsProblems();
+                WarnSkinProblems();
+                MeterView.ImageFailed += OnImageFailed;
             }
             else
             {
@@ -451,6 +454,25 @@ namespace DeskMeter
         }
 
         // 「スキン」の中身: 組み込み、区切り線、skins\*.json の順
+        // skins\*.json に書き間違いがあれば (色・キー名・候補に無い値・無いフォント)、選んだときに知らせる
+        void WarnSkinProblems()
+        {
+            try
+            {
+                Skin s = Skin.Get(cfg.Skin);
+                if (s.Warnings > 0 && tray != null)
+                    tray.ShowBalloonTip(6000, AppName, "スキン「" + cfg.Skin + "」に " + s.Warnings + " 件の問題があります (その項目は既定の値で表示)。deskmeter.log に内容があります。", WF.ToolTipIcon.Warning);
+            }
+            catch (Exception ex) { Log.Write("skin warn", ex); }
+        }
+
+        // settings.json の一部の項目が読めず既定値にしたときに知らせる
+        void WarnSettingsProblems()
+        {
+            if (Settings.LastLoadWarnings.Count == 0 || tray == null) return;
+            tray.ShowBalloonTip(8000, AppName, "settings.json の " + string.Join(", ", Settings.LastLoadWarnings.ToArray()) + " が読めなかったので既定値にしました (ほかの設定はそのまま)。", WF.ToolTipIcon.Warning);
+        }
+
         void FillSkinMenu()
         {
             miSkin.DropDownItems.Clear();
@@ -466,7 +488,7 @@ namespace DeskMeter
         WF.ToolStripMenuItem SkinItem(string name)
         {
             string n = name;
-            var mi = Item(Skin.DisplayName(n), delegate { cfg.Skin = n; ApplySkinAll(); cfg.Save(); });
+            var mi = Item(Skin.DisplayName(n), delegate { cfg.Skin = n; ApplySkinAll(); cfg.Save(); WarnSkinProblems(); });
             mi.Tag = n;
             return mi;
         }
@@ -731,6 +753,17 @@ namespace DeskMeter
             ApplyClickThrough();
             ApplyHotkey();
             sampler.RefreshWeatherNow();
+            WarnSettingsProblems();
+            WarnSkinProblems();
+        }
+
+        // 背景・マスコット画像が読めなかったとき (形式が未対応、ファイルが無い) に知らせる。同じパスは 1 回だけ
+        string lastImageFailure;
+        void OnImageFailed(string path, string reason)
+        {
+            if (path == lastImageFailure || tray == null) return;
+            lastImageFailure = path;
+            tray.ShowBalloonTip(6000, AppName, "画像を読み込めません: " + Path.GetFileName(path) + "\n" + reason, WF.ToolTipIcon.Warning);
         }
 
         // ---------------------------------------------------------------- hotkey / second instance / panel double-click

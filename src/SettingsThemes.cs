@@ -224,10 +224,33 @@ namespace DeskMeter
             {
                 Directory.CreateDirectory(ThemeDir);
                 string path = Path.Combine(ThemeDir, name + ".json");
-                File.WriteAllText(path, Pretty(new JavaScriptSerializer().Serialize(ToTheme())), new UTF8Encoding(false));
+                ThemeFile t = ToTheme();
+                // 画像は exe からの相対パスで持つ。アプリのフォルダーの外にある画像は themes\images\ に複製して、
+                // テーマのフォルダーごと別の PC に持っていっても表示できるようにする
+                t.BackgroundImage = PortableImagePath(BackgroundImage);
+                t.MascotImage = PortableImagePath(MascotImage);
+                File.WriteAllText(path, Pretty(new JavaScriptSerializer().Serialize(t)), new UTF8Encoding(false));
                 return true;
             }
             catch (Exception ex) { Log.Write("theme save " + name, ex); return false; }
+        }
+
+        static string PortableImagePath(string setting)
+        {
+            if (string.IsNullOrWhiteSpace(setting)) return setting;
+            try
+            {
+                string full = Path.GetFullPath(Path.IsPathRooted(setting) ? setting : Path.Combine(AppPaths.Dir, setting));
+                string root = Path.GetFullPath(AppPaths.Dir).TrimEnd('\\') + "\\";
+                if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return full.Substring(root.Length);
+                if (!File.Exists(full)) return setting;
+                string imgDir = Path.Combine(ThemeDir, "images");
+                Directory.CreateDirectory(imgDir);
+                string dest = Path.Combine(imgDir, Path.GetFileName(full));
+                if (!File.Exists(dest) || new FileInfo(dest).Length != new FileInfo(full).Length) File.Copy(full, dest, true);
+                return Path.Combine("themes", "images", Path.GetFileName(full));
+            }
+            catch (Exception ex) { Log.Write("theme image " + setting, ex); return setting; }
         }
 
         public static ThemeFile LoadTheme(string name)

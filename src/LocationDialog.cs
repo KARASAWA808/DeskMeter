@@ -214,6 +214,8 @@ namespace DeskMeter
             string url = "https://geocoding-api.open-meteo.com/v1/search?name=" + Uri.EscapeDataString(q) + "&language=ja&count=10";
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Timeout = 10000;
+            req.ReadWriteTimeout = 10000;   // 本文の受信が止まったときも 10 秒で諦める
+            req.AutomaticDecompression = DecompressionMethods.GZip;
             req.UserAgent = "DeskMeter/1.0";
             string json;
             using (WebResponse resp = req.GetResponse())
@@ -258,16 +260,26 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- accept
 
+        static string NormalizeNumber(string s)
+        {
+            s = (s ?? "").Trim().Replace(',', '.').Replace('．', '.').Replace('，', '.').Replace('－', '-').Replace('−', '-');
+            var sb = new StringBuilder(s.Length);
+            foreach (char c in s) sb.Append(c >= '０' && c <= '９' ? (char)('0' + (c - '０')) : c);
+            return sb.ToString();
+        }
+
         void Accept()
         {
             double lat, lon;
-            if (!double.TryParse(latBox.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out lat) || lat < -90 || lat > 90)
+            // 小数点のカンマ ("35,68") と全角数字も受け付ける
+            string latText = NormalizeNumber(latBox.Text), lonText = NormalizeNumber(lonBox.Text);
+            if (!double.TryParse(latText, NumberStyles.Float, CultureInfo.InvariantCulture, out lat) || lat < -90 || lat > 90)
             {
                 status.Text = "緯度は -90〜90 の数値で入力してください。";
                 latBox.Focus();
                 return;
             }
-            if (!double.TryParse(lonBox.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out lon) || lon < -180 || lon > 180)
+            if (!double.TryParse(lonText, NumberStyles.Float, CultureInfo.InvariantCulture, out lon) || lon < -180 || lon > 180)
             {
                 status.Text = "経度は -180〜180 の数値で入力してください。";
                 lonBox.Focus();

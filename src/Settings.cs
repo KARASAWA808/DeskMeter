@@ -107,16 +107,38 @@ namespace DeskMeter
         }
 
         // ファイルを読んで返す。無ければ null (broken = false)、パースに失敗したら null (broken = true)
+        // 最後の読み込みで型や形式が合わずに既定値へ戻した項目名 (起動後や再読み込み後にトレイで知らせる)
+        public static List<string> LastLoadWarnings = new List<string>();
+
         static Settings TryLoad(out bool broken)
         {
             broken = false;
+            var warnings = new List<string>();
             try
             {
                 if (!File.Exists(FilePath)) { RememberStamp(); return null; }
-                var s = new JavaScriptSerializer().Deserialize<Settings>(File.ReadAllText(FilePath, Encoding.UTF8));
+                string json = File.ReadAllText(FilePath, Encoding.UTF8);
                 RememberStamp();
-                if (s == null) { broken = true; return null; }
+                // JSON として読めないときだけ「壊れている」扱い。項目ごとの型違い (数値の欄に文字など) は
+                // その項目だけ既定値にして、ほかの設定は残す
+                var ser = new JavaScriptSerializer();
+                var dict = ser.DeserializeObject(json) as Dictionary<string, object>;
+                if (dict == null) { broken = true; return null; }
+                var s = new Settings();
+                foreach (FieldInfo f in typeof(Settings).GetFields(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (f.IsDefined(typeof(ScriptIgnoreAttribute), false)) continue;
+                    object v;
+                    if (!dict.TryGetValue(f.Name, out v)) continue;
+                    try { f.SetValue(s, ser.ConvertToType(v, f.FieldType)); }
+                    catch (Exception ex)
+                    {
+                        warnings.Add(f.Name);
+                        Log.Write("Settings." + f.Name + " (既定値を使います)", ex);
+                    }
+                }
                 s.Normalize();
+                if (warnings.Count > 0) s.pendingSave = true;   // 直した値で書き戻しておく
                 if (s.pendingSave) { s.pendingSave = false; s.Save(); }   // 移行で配置を変えたらすぐ保存
                 return s;
             }
@@ -127,6 +149,7 @@ namespace DeskMeter
                 broken = true;
                 return null;
             }
+            finally { LastLoadWarnings = warnings; }
         }
 
         static string BackupBroken()
