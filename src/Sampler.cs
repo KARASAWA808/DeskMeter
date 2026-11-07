@@ -729,7 +729,7 @@ namespace DeskMeter
 
             var list = new List<ProcRow>(agg.Values);
             list.Sort(delegate(ProcRow a, ProcRow b) { return b.Mem.CompareTo(a.Mem); });
-            var byMem = list.GetRange(0, Math.Min(8, list.Count));
+            var byMem = list.GetRange(0, Math.Min(10, list.Count));
             list.Sort(delegate(ProcRow a, ProcRow b)
             {
                 int c = b.Cpu.CompareTo(a.Cpu);

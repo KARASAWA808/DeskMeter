@@ -841,9 +841,7 @@ namespace DeskMeter
                 T(dc, p.Cpu.ToString("0.0", Inv) + "%", x + ColW, y, FS, b, 1);
                 y += RowH;
             }
-            y += 4;
-            Graph(dc, new Rect(x, y, ColW, 40), new[] { st.ProcHist }, new[] { PenGreen }, 100);
-            return y + 40;
+            return y - 4;   // 一番下のグラフは無し (CPU 全体の推移は CPU Meter にある)
         }
 
         // ---------------------------------------------------------------- clock / calendar
