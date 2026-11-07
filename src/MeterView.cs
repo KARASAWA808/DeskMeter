@@ -8,7 +8,7 @@ using System.Windows.Media;
 namespace DeskMeter
 {
     // 全メーターを1つの要素に直接描画する (1秒に1回だけ再描画)
-    sealed class MeterView : FrameworkElement
+    sealed partial class MeterView : FrameworkElement
     {
         const double ColW = 220, Gap = 12, RowH = 18, FS = 13, PanelGap = 16;
 
@@ -318,14 +318,14 @@ namespace DeskMeter
         protected override void OnRender(DrawingContext dc)
         {
             dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-            byte alpha = (byte)Math.Max(1, Math.Min(255, Math.Round(cfg.BackgroundOpacity * 255)));
-            Color bc = sk.Background;
-            var bg = new SolidColorBrush(Color.FromArgb(alpha, bc.R, bc.G, bc.B));
-            bg.Freeze();
-            dc.DrawRoundedRectangle(bg, null, new Rect(0, 0, contentW, contentH), sk.CornerRadius, sk.CornerRadius);
+            DrawBackground(dc);
+            DrawDecor(dc);
+            DrawCards(dc);
 
             const double top = 12;
             double x = Gap, h = 0, y;
+            prevBoxes.Clear();
+            prevBoxes.AddRange(boxes);
             boxes.Clear();
             lock (st)
             {
@@ -356,6 +356,7 @@ namespace DeskMeter
                     h = top + RowH * 2;
                 }
             }
+            DrawMascot(dc);
             if (editMode) DrawEditOverlay(dc);
             if (Scanline != null)
  dc.DrawRectangle(Scanline, null, new Rect(0, 0, contentW, contentH));
@@ -394,10 +395,20 @@ namespace DeskMeter
 
         void Bar(DrawingContext dc, double x, double y, double w, double h, double frac, Brush fill)
         {
-            dc.DrawRoundedRectangle(Track, null, new Rect(x, y, w, h), 2, 2);
+            double rad = sk.BarStyle == "pill" ? h / 2 : 2;
+            dc.DrawRoundedRectangle(Track, null, new Rect(x, y, w, h), rad, rad);
             if (double.IsNaN(frac)) return;
             frac = Math.Max(0, Math.Min(1, frac));
-            if (frac > 0.004) dc.DrawRoundedRectangle(fill, null, new Rect(x, y, Math.Max(2, w * frac), h), 2, 2);
+            if (frac <= 0.004) return;
+            if (sk.BarStyle == "segment")
+            {
+                // 4px のブロックを 1px 空けて並べる
+                double filled = w * frac;
+                for (double bx = 0; bx < filled; bx += 5)
+                    dc.DrawRectangle(fill, null, new Rect(x + bx, y + 1, Math.Min(4, filled - bx), h - 2));
+                return;
+            }
+            dc.DrawRoundedRectangle(fill, null, new Rect(x, y, Math.Max(h, w * frac), h), rad, rad);
         }
 
         double BarRow(DrawingContext dc, double x, double y, double frac, Brush fill, string label, Brush labelBrush, string value, Brush valueBrush)
@@ -417,7 +428,7 @@ namespace DeskMeter
 
         void Header(DrawingContext dc, double x, double y, string glyph, Brush tile, string title, string right)
         {
-            dc.DrawRoundedRectangle(tile, null, new Rect(x, y, 36, 36), 6, 6);
+            dc.DrawRoundedRectangle(tile, null, new Rect(x, y, 36, 36), sk.TileRadius, sk.TileRadius);
             FormattedText icon = Make(glyph, 20, White, TfIcon);
             dc.DrawText(icon, new Point(x + 18 - icon.Width / 2, y + 18 - icon.Height / 2));
             T(dc, title, x + 46, y - 3, 15.5, White, 0, true);
@@ -475,7 +486,33 @@ namespace DeskMeter
                     }
                 }
                 g.Freeze();
-                dc.DrawGeometry(null, pens[s % pens.Length], g);
+                Pen pen = pens[s % pens.Length];
+                if (sk.GraphArea)
+                {
+                    // 折れ線の下を薄く塗る
+                    var area = new StreamGeometry();
+                    using (StreamGeometryContext actx = area.Open())
+                    {
+                        bool first = true;
+                        for (int i = 0; i < h.Count; i += stride)
+                        {
+                            int end = Math.Min(h.Count, i + stride);
+                            float mv = 0;
+                            for (int j = i; j < end; j++) { float sv = h.At(j); if (sv > mv) mv = sv; }
+                            double v = Math.Max(0, Math.Min(1, mv / max));
+                            var pt = new Point(x0 + (end - 1) * step, r.Bottom - 1.5 - v * (r.Height - 3));
+                            if (first) { actx.BeginFigure(new Point(pt.X, r.Bottom), true, true); first = false; }
+                            actx.LineTo(pt, false, false);
+                        }
+                        actx.LineTo(new Point(r.Right, r.Bottom), false, false);
+                    }
+                    area.Freeze();
+                    Brush fillArea = pen.Brush.Clone();
+                    fillArea.Opacity = 0.22;
+                    fillArea.Freeze();
+                    dc.DrawGeometry(fillArea, null, area);
+                }
+                dc.DrawGeometry(null, pen, g);
             }
             dc.Pop();
             dc.DrawRectangle(null, GraphBorder, new Rect(r.X + 0.5, r.Y + 0.5, r.Width - 1, r.Height - 1));

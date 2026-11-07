@@ -1,0 +1,20 @@
+{
+  "BackgroundGradient": "#F1E6FF,#DCCBFF",
+  "Card": "#C8FFFFFF", "CardBorder": "#CDB8F5", "CardRadius": 14,
+  "TileRadius": 18, "BarStyle": "pill", "GraphArea": true,
+  "Decor": "hearts", "DecorColor": "#B57BEE",
+  "Mascot": "bear", "MascotBody": "#F5E6D3", "MascotAccent": "#FFB3CC", "MascotEye": "#4A3340",
+  "FontFamily": "UD Digi Kyokasho NK-R, Yu Gothic UI, Meiryo UI",
+  "CornerRadius": 18, "BorderColor": "#CDB8F5",
+  "Title": "#4A3A5A", "Text1": "#B5651D", "Text2": "#6B5BD2", "Accent1": "#3FAF80", "Accent2": "#FF8A5C",
+  "Lime": "#3FAF80", "Warn": "#FF8A5C", "Danger": "#E8365D", "Muted": "#9A8FA8", "Dim": "#D8CFE6",
+  "Magenta": "#D94FB2", "Violet": "#8C6BE0", "Blue": "#5B8DEF",
+  "Track": "#EEE4F8", "GraphBg": "#FBF8FF", "Separator": "#CDB8F5", "GraphBorder": "#E0D4F5", "GraphGrid": "#F3ECFF",
+  "CalHead": "#E6D8FF", "Today": "#8C6BE0", "CalSun": "#E8365D", "CalSat": "#5B8DEF",
+  "DateTile": "#C4A8FF,#8C6BE0", "DateTileText": "#FFFFFF",
+  "Sun": "#FFC93C", "CloudLight": "#E6E1F0", "CloudDark": "#B8AFC8", "Rain": "#5B8DEF", "Snow": "#BFD4FF",
+  "MoonLit": "#FFE9A8", "MoonDark": "#E2D6EA",
+  "Palette": ["#8C6BE0", "#FF6FA3", "#3FAF80", "#5B8DEF", "#FFB347", "#FF8A5C", "#2BBFC2",
+              "#E8365D", "#8DC63F", "#F2B705", "#7B8CFF", "#D94FB2", "#48C2A0", "#C97BFF"],
+  "Tiles": ["#B89CFF", "#7FA8FF", "#5AC8B4", "#C8B4E8", "#FF8CB8", "#FF9E7A"]
+}

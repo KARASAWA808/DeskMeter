@@ -153,6 +153,34 @@
   "Tiles": ["#118AB2", "#0B6E7A", "#1B9AAA", "#2F5D6B", "#4C6EF5", "#0A9396"]
 }</code></pre>
 
+<h2>見た目の拡張項目</h2>
+<p>色だけでなく、形や飾りも変えられます。組み込みの Kawaii Pink / Synthwave / Matrix などはこれらを使っています。全て省略可能です。</p>
+<table>
+  <tr><th>項目</th><th>型</th><th>意味</th></tr>
+  <tr><td><code>BackgroundGradient</code></td><td>"#上の色,#下の色"</td><td>背景を上下のグラデーションにする (<code>Background</code> より優先)</td></tr>
+  <tr><td><code>Card</code></td><td>色</td><td>パネルごとに敷くカードの色。<code>#C8FFFFFF</code> のように先頭2桁で透明度も指定できる</td></tr>
+  <tr><td><code>CardBorder</code></td><td>色</td><td>カードの枠線</td></tr>
+  <tr><td><code>CardRadius</code></td><td>数値</td><td>カードの角丸 (0〜30)</td></tr>
+  <tr><td><code>TileRadius</code></td><td>数値</td><td>見出しアイコンの角丸 (0〜18。18 で丸)</td></tr>
+  <tr><td><code>BarStyle</code></td><td>"flat" / "pill" / "segment"</td><td>バーの形: 角丸の四角 / 丸い棒 / ブロック状</td></tr>
+  <tr><td><code>GraphArea</code></td><td>true / false</td><td>グラフの折れ線の下を薄く塗る</td></tr>
+  <tr><td><code>Decor</code></td><td>"sakura" / "hearts" / "stars" / "bubbles" / "dots" / "grid" / "rain" / "lines"</td><td>背景の飾り: 桜の花びら / ハート / きらきら / 泡 / 水玉 / 夕焼けの遠近グリッド / 緑の文字の雨 / ノートの罫線</td></tr>
+  <tr><td><code>DecorColor</code></td><td>色</td><td>飾りの色 (透明度は自動で付く)</td></tr>
+  <tr><td><code>Mascot</code></td><td>"cat" / "bunny" / "bear"</td><td>いちばん空いている列の下に描くキャラクター。空きが 64px 未満なら描かない</td></tr>
+  <tr><td><code>MascotBody</code> / <code>MascotAccent</code> / <code>MascotEye</code></td><td>色</td><td>キャラクターの体 / 耳の内側・ほっぺ / 目の色</td></tr>
+</table>
+<p>例 (ハートと くまのパステル紫):</p>
+<pre><code>{
+  "BackgroundGradient": "#F1E6FF,#DCCBFF",
+  "Card": "#C8FFFFFF", "CardBorder": "#CDB8F5", "CardRadius": 14,
+  "TileRadius": 18, "BarStyle": "pill", "GraphArea": true,
+  "Decor": "hearts", "DecorColor": "#B57BEE",
+  "Mascot": "bear", "MascotBody": "#F5E6D3", "MascotAccent": "#FFB3CC", "MascotEye": "#4A3340",
+  "Title": "#4A3A5A", "Text1": "#B5651D", "Text2": "#6B5BD2", "Accent1": "#3FAF80", "Accent2": "#FF8A5C",
+  "Muted": "#9A8FA8", "Dim": "#D8CFE6", "Track": "#EEE4F8", "GraphBg": "#FBF8FF", "Separator": "#CDB8F5",
+  "CalHead": "#E6D8FF", "Today": "#8C6BE0", "DateTile": "#C4A8FF,#8C6BE0"
+}</code></pre>
+
 <h2>うまくいかないとき</h2>
 <table>
   <tr><th>症状</th><th>原因</th><th>対処</th></tr>

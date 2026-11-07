@@ -9,7 +9,7 @@ using System.Windows.Media;
 namespace DeskMeter
 {
     // 配色・フォント・形状の定義。MeterView はここにある値だけを使って描く。
-    sealed class Skin
+    sealed partial class Skin
     {
         public string Name;
         public string FontFamily = "Segoe UI, Yu Gothic UI, Meiryo UI";
@@ -26,6 +26,19 @@ namespace DeskMeter
         public Pen GraphBorder, GraphGrid;
         public Brush[] Palette;        // コア / プロセスの色 (順に循環)
         public Brush[] Tiles = new Brush[6];   // GPU, CPU, Network, Drives, TopCpu, TopMemory
+
+        // 見た目の拡張 (SkinsExtra.cs のスキンが使う)
+        public Brush BackgroundBrush;    // null なら Background の単色。グラデーション等
+        public double TileRadius = 6;    // 見出しアイコンの角丸
+        public string BarStyle = "flat"; // flat / pill / segment
+        public bool GraphArea;           // 折れ線の下を塗る
+        public string Decor = "";        // 背景の飾り: sakura / hearts / stars / bubbles / grid / rain / dots / lines
+        public Color DecorColor = Colors.White;
+        public string Mascot = "";       // 空きスペースに描くキャラクター: cat / bunny / bear
+        public Brush MascotBody, MascotAccent, MascotEye;
+        public Brush CardBrush;          // パネルごとのカード背景 (null なら無し)
+        public Pen CardBorder;
+        public double CardRadius = 12;
 
         public static Color Hex(string s) { return (Color)ColorConverter.ConvertFromString(s); }
 
@@ -60,7 +73,7 @@ namespace DeskMeter
             return r;
         }
 
-        public static readonly string[] BuiltIn = { "Classic", "Cyberpunk", "Retro", "Light" };
+        public static readonly string[] BuiltIn = { "Classic", "Cyberpunk", "Retro", "Light", "KawaiiPink", "KawaiiMint", "Synthwave", "Matrix", "Nord", "Dracula", "Frost", "Notebook" };
 
         // 組み込み + skins フォルダーのスキン名 (呼ぶたびにフォルダーを見直す)
         public static string[] Names
@@ -108,6 +121,14 @@ namespace DeskMeter
                 case "Cyberpunk": return "Cyberpunk (ネオン)";
                 case "Retro": return "Retro (アンバーCRT)";
                 case "Light": return "Light (明るい壁紙向け)";
+                case "KawaiiPink": return "Kawaii Pink (さくら・うさぎ)";
+                case "KawaiiMint": return "Kawaii Mint (ミント・ねこ)";
+                case "Synthwave": return "Synthwave (夕焼けグリッド)";
+                case "Matrix": return "Matrix (緑の端末)";
+                case "Nord": return "Nord (北欧パレット)";
+                case "Dracula": return "Dracula (紫と桃)";
+                case "Frost": return "Frost (すりガラス)";
+                case "Notebook": return "Notebook (紙のノート)";
                 default: return name;
             }
         }
@@ -120,6 +141,14 @@ namespace DeskMeter
                 case "Retro": return Retro();
                 case "Light": return Light();
                 case "Classic": return Classic();
+                case "KawaiiPink": return KawaiiPink();
+                case "KawaiiMint": return KawaiiMint();
+                case "Synthwave": return Synthwave();
+                case "Matrix": return Matrix();
+                case "Nord": return Nord();
+                case "Dracula": return Dracula();
+                case "Frost": return Frost();
+                case "Notebook": return Notebook();
             }
             // 組み込みに無ければ skins\<名前>.json。読めなければ Classic
             if (!string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
@@ -152,6 +181,18 @@ namespace DeskMeter
                 Sun, CloudLight, CloudDark, Rain, Snow, MoonLit, MoonDark;
             public string[] Palette;        // コア / プロセスの色 (1 つ以上)
             public string[] Tiles;          // 見出しアイコンの背景 6 色: GPU, CPU, Network, Drives, TopCpu, TopMemory
+            // 見た目の拡張
+            public string BackgroundGradient;   // "#上の色,#下の色"
+            public double? TileRadius;
+            public string BarStyle;             // flat / pill / segment
+            public bool? GraphArea;
+            public string Decor;                // sakura / hearts / stars / bubbles / grid / rain / dots / lines
+            public string DecorColor;
+            public string Mascot;               // cat / bunny / bear
+            public string MascotBody, MascotAccent, MascotEye;
+            public string Card;                 // パネルごとのカード背景色 (#AARRGGBB 可)
+            public string CardBorder;
+            public double? CardRadius;
         }
 
         // 壊れた JSON は deskmeter.log に書いて null を返す。色の書き間違いは項目ごとに Classic の値で代用する
@@ -201,6 +242,20 @@ namespace DeskMeter
                 if (pal != null) s.Palette = pal;
                 Brush[] tiles = ctx.Brushes("Tiles", f.Tiles, 6);
                 if (tiles != null) s.Tiles = tiles;
+                // 見た目の拡張
+                s.BackgroundBrush = ctx.Brush("BackgroundGradient", f.BackgroundGradient, null);
+                if (f.TileRadius.HasValue) s.TileRadius = Math.Max(0, Math.Min(18, f.TileRadius.Value));
+                if (!string.IsNullOrWhiteSpace(f.BarStyle)) s.BarStyle = f.BarStyle.Trim().ToLowerInvariant();
+                if (f.GraphArea.HasValue) s.GraphArea = f.GraphArea.Value;
+                if (f.Decor != null) s.Decor = f.Decor.Trim().ToLowerInvariant();
+                s.DecorColor = ctx.Color("DecorColor", f.DecorColor, s.DecorColor);
+                if (f.Mascot != null) s.Mascot = f.Mascot.Trim().ToLowerInvariant();
+                s.MascotBody = ctx.Brush("MascotBody", f.MascotBody, s.MascotBody);
+                s.MascotAccent = ctx.Brush("MascotAccent", f.MascotAccent, s.MascotAccent);
+                s.MascotEye = ctx.Brush("MascotEye", f.MascotEye, s.MascotEye);
+                s.CardBrush = ctx.Brush("Card", f.Card, null);
+                Brush cb = ctx.Brush("CardBorder", f.CardBorder, null); if (cb != null) s.CardBorder = P(cb, 1);
+                if (f.CardRadius.HasValue) s.CardRadius = Math.Max(0, Math.Min(30, f.CardRadius.Value));
                 return s;
             }
             catch (Exception ex)
