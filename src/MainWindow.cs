@@ -550,7 +550,6 @@ namespace DeskMeter
 
             miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
             menu.Items.Add(miEdit);
-            menu.Items.Add(Item("配置をリセット (標準の3列)", delegate { cfg.Layout = Settings.DefaultLayout(); RelayoutAll(); cfg.Save(); }));
             BuildLayoutMenus();
 
             menu.Items.Add(new WF.ToolStripSeparator());
