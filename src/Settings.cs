@@ -20,6 +20,10 @@ namespace DeskMeter
         public double? Top;
         // 計測間隔 (ミリ秒)。250〜10000
         public int IntervalMs = 1000;
+        // グラフの時間幅 (秒)。30〜1800。更新間隔を変えてもグラフが表す時間は変わらない
+        public int HistorySeconds = 120;
+        // 表示/非表示のグローバルホットキー (例 "Ctrl+Alt+D")。空文字で無効
+        public string Hotkey = "";
         // スキン名: Classic / Cyberpunk / Retro / Light
         public string Skin = "Classic";
         // 表示倍率 (1.0 = 100%)
@@ -154,6 +158,8 @@ namespace DeskMeter
             BackgroundOpacity = Math.Max(0, Math.Min(1, BackgroundOpacity));
             if (Mode != "topmost" && Mode != "normal") Mode = "desktop";
             if (IntervalMs < 250 || IntervalMs > 10000) IntervalMs = 1000;
+            HistorySeconds = Math.Max(30, Math.Min(1800, HistorySeconds));
+            if (Hotkey == null) Hotkey = "";
             if (string.IsNullOrEmpty(Skin)) Skin = "Classic";
             if (AnchorH != "left") AnchorH = "right";
             if (AnchorV != "bottom") AnchorV = "top";

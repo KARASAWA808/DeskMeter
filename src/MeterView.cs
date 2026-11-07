@@ -71,6 +71,9 @@ namespace DeskMeter
         bool dragging;
         int dropCol, dropIndex;      // dropCol = -1: 左に新しい列, Layout.Count: 右に新しい列
         public event Action LayoutChanged;
+        // パネルのダブルクリック (パネルID, 補助情報: ドライブ名など)。配置編集中は起きない
+        public event Action<string, string> PanelActivated;
+        readonly List<KeyValuePair<Rect, string>> driveBoxes = new List<KeyValuePair<Rect, string>>();   // ドライブ行の矩形
 
         public bool EditMode
         {
@@ -93,7 +96,24 @@ namespace DeskMeter
         protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
         {
             base.OnMouseLeftButtonDown(e);
-            if (!editMode) return;
+            if (!editMode)
+            {
+                // ダブルクリックで関連アプリを開く (シングルクリックはウィンドウの移動に使う)
+                if (e.ClickCount == 2 && PanelActivated != null)
+                {
+                    Point p = e.GetPosition(this);
+                    PanelBox hit = BoxAt(p);
+                    if (hit != null)
+                    {
+                        string arg = null;
+                        if (hit.Id == "drives")
+                            foreach (KeyValuePair<Rect, string> kv in driveBoxes) if (kv.Key.Contains(p)) arg = kv.Value;
+                        PanelActivated(hit.Id, arg);
+                        e.Handled = true;   // 2 回目のクリックでウィンドウを掴まない
+                    }
+                }
+                return;
+            }
             PanelBox b = BoxAt(e.GetPosition(this));
             if (b == null) return;
             dragId = b.Id;
@@ -423,13 +443,18 @@ namespace DeskMeter
                 if (h.Count < 2) continue;
                 double step = r.Width / (h.Cap - 1);
                 double x0 = r.Right - (h.Count - 1) * step;
+                // 時間幅が長く 1px に何本も入るときは、その区間の最大値を 1 点にまとめる (ピークを潰さない)
+                int stride = Math.Max(1, (int)Math.Ceiling(h.Cap / (r.Width * 2)));
                 var g = new StreamGeometry();
                 using (StreamGeometryContext ctx = g.Open())
                 {
-                    for (int i = 0; i < h.Count; i++)
+                    for (int i = 0; i < h.Count; i += stride)
                     {
-                        double v = Math.Max(0, Math.Min(1, h.At(i) / max));
-                        var pt = new Point(x0 + i * step, r.Bottom - 1.5 - v * (r.Height - 3));
+                        int end = Math.Min(h.Count, i + stride);
+                        float mv = 0;
+                        for (int j = i; j < end; j++) { float sv = h.At(j); if (sv > mv) mv = sv; }
+                        double v = Math.Max(0, Math.Min(1, mv / max));
+                        var pt = new Point(x0 + (end - 1) * step, r.Bottom - 1.5 - v * (r.Height - 3));
                         if (i == 0) ctx.BeginFigure(pt, false, false);
                         else ctx.LineTo(pt, true, true);
                     }
@@ -439,7 +464,17 @@ namespace DeskMeter
             }
             dc.Pop();
             dc.DrawRectangle(null, GraphBorder, new Rect(r.X + 0.5, r.Y + 0.5, r.Width - 1, r.Height - 1));
+            // 右上にグラフが表す時間幅
+            T(dc, SpanText(cfg.HistorySeconds), r.Right - 4, r.Y + 1, 10, Gray, 1);
             return max;
+        }
+
+        // グラフの時間幅の表示 ("30秒", "2分", "1分30秒")
+        public static string SpanText(int secs)
+        {
+            if (secs < 60) return secs.ToString(Inv) + "秒";
+            if (secs % 60 == 0) return (secs / 60).ToString(Inv) + "分";
+            return (secs / 60).ToString(Inv) + "分" + (secs % 60).ToString(Inv) + "秒";
         }
 
         // 自動スケールのグラフに上限値を小さく書く
@@ -579,9 +614,11 @@ namespace DeskMeter
             Header(dc, x, y, "", TileSlate, "Drives Meter", Pct(st.DiskActive));
             T(dc, "Activity", x + 46, y + 19, 12.5, Gray);
             y += 44;
+            driveBoxes.Clear();
             foreach (DriveRow d in st.Drives)
             {
                 double usedFrac = d.Total > 0 ? (double)(d.Total - d.Free) / d.Total : 0;
+                driveBoxes.Add(new KeyValuePair<Rect, string>(new Rect(x, y, ColW, RowH + 16 + RowH + 2), d.Name));
                 T(dc, d.Name + " " + d.Label, x, y, FS, Cyan, 0, false, ColW - 44);
                 T(dc, Pct(usedFrac * 100), x + ColW, y, FS, White, 1);
                 y += RowH;
@@ -645,7 +682,7 @@ namespace DeskMeter
             Sep(dc, x, y + 3);
             y += 8;
 
-            if (cfg.CompactCores)
+            if (cfg.CompactCores || st.Cores.Length > 32)   // 論理プロセッサが多いときは縦に収まらないので自動で 2 列
             {
                 // 2列表示: 左右に並ぶ2つは (Pコアなら) 同じ物理コアのスレッド
                 double cellW = (ColW - 10) / 2;

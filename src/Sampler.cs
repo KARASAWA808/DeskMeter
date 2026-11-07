@@ -71,6 +71,8 @@ namespace DeskMeter
     sealed class MeterState
     {
         public const int HistLen = 60;
+        // いまの履歴の容量 (Sampler が HistorySeconds / IntervalMs から決める)。CoreHist を作り直すときに使う
+        public int HistCap = HistLen;
 
         public string CpuName = "CPU";
         public float CpuTotal, CpuMHz;
@@ -132,6 +134,7 @@ namespace DeskMeter
 
         int pingBusy, weatherBusy;
         DateTime weatherNext = DateTime.MinValue;
+        int histSeconds = -1, histInterval = -1;   // 履歴の容量を決めたときの設定値
 
         public Sampler(Settings cfg) { this.cfg = cfg; }
 
@@ -168,6 +171,8 @@ namespace DeskMeter
             while (!stopEvent.WaitOne(0))
             {
                 int interval = Math.Max(250, Math.Min(10000, cfg.IntervalMs));
+                int secs = Math.Max(30, Math.Min(1800, cfg.HistorySeconds));
+                if (secs != histSeconds || interval != histInterval) ResizeHist(secs, interval);
                 long t0 = sw.ElapsedMilliseconds;
                 double dt = (t0 - last) / 1000.0;
                 last = t0;
@@ -194,6 +199,25 @@ namespace DeskMeter
         {
             try { a(); }
             catch (Exception ex) { Log.Write(name, ex); }
+        }
+
+        // グラフが表す時間 (HistorySeconds) が更新間隔に左右されないよう、履歴の容量を決め直す。既存のデータは捨てる
+        void ResizeHist(int secs, int interval)
+        {
+            histSeconds = secs;
+            histInterval = interval;
+            int cap = Math.Max(2, Math.Min(7200, secs * 1000 / interval));
+            // プロセス一覧は最短でも 2 秒ごとにしか取らないので、その間隔で同じ時間幅になる本数にする
+            int procCap = Math.Max(2, secs * 1000 / Math.Max(2000, interval));
+            lock (S)
+            {
+                S.HistCap = cap;
+                S.GpuUtilHist = new Hist(cap); S.GpuTempHist = new Hist(cap);
+                S.UpHist = new Hist(cap); S.DownHist = new Hist(cap);
+                S.ReadHist = new Hist(cap); S.WriteHist = new Hist(cap);
+                S.ProcHist = new Hist(procCap);
+                for (int i = 0; i < S.CoreHist.Length; i++) S.CoreHist[i] = new Hist(cap);
+            }
         }
 
         void Init()
@@ -280,7 +304,7 @@ namespace DeskMeter
                 {
                     S.Cores = new float[list.Count];
                     S.CoreHist = new Hist[list.Count];
-                    for (int i = 0; i < list.Count; i++) S.CoreHist[i] = new Hist(MeterState.HistLen);
+                    for (int i = 0; i < list.Count; i++) S.CoreHist[i] = new Hist(S.HistCap);
                 }
                 for (int i = 0; i < list.Count; i++)
                 {
