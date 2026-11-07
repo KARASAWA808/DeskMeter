@@ -169,9 +169,12 @@ namespace DeskMeter
             int cols = cfg.Layout.Count;
             // 列数が上限なら新しい列は作らず、最寄りの列へ入れる
             bool canAdd = cols < Settings.MaxColumns;
-            if (canAdd && p.X < Gap * 0.75) { dropCol = -1; dropIndex = 0; return; }
-            if (canAdd && p.X > contentW - Gap * 0.75) { dropCol = cols; dropIndex = 0; return; }
-            dropCol = Math.Max(0, Math.Min(cols - 1, (int)((p.X - Gap) / (ColW + Gap))));
+            // 立ち絵の分だけ列がずれているので補正する
+            double px = p.X - (cfg.MascotPlacement == "left" ? sideExtra : 0);
+            double w = contentW - sideExtra;
+            if (canAdd && px < Gap * 0.75) { dropCol = -1; dropIndex = 0; return; }
+            if (canAdd && px > w - Gap * 0.75) { dropCol = cols; dropIndex = 0; return; }
+            dropCol = Math.Max(0, Math.Min(cols - 1, (int)((px - Gap) / (ColW + Gap))));
             dropIndex = 0;
             foreach (PanelBox b in boxes)
             {
@@ -207,6 +210,7 @@ namespace DeskMeter
                 case "calendar": return DrawCalendar(dc, x, y);
                 case "datetile": return DrawDateTile(dc, x, y);
                 case "weather": return DrawWeather(dc, x, y);
+                case "rings": return DrawRings(dc, x, y);
                 default: return y;
             }
         }
@@ -318,12 +322,21 @@ namespace DeskMeter
         protected override void OnRender(DrawingContext dc)
         {
             dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            // 立ち絵を横に並べる設定なら、その分だけ窓を広げる
+            sideExtra = SideExtra();
+            double wantW = WidthFor(cfg) + sideExtra;
+            if (Math.Abs(wantW - contentW) > 0.5)
+            {
+                contentW = wantW;
+                Dispatcher.BeginInvoke(new Action(delegate { InvalidateMeasure(); InvalidateVisual(); }));
+            }
             DrawBackground(dc);
+            DrawBackgroundImage(dc);
             DrawDecor(dc);
             DrawCards(dc);
 
             const double top = 12;
-            double x = Gap, h = 0, y;
+            double x = Gap + (cfg.MascotPlacement == "left" ? sideExtra : 0), h = 0, y;
             prevBoxes.Clear();
             prevBoxes.AddRange(boxes);
             boxes.Clear();
@@ -389,7 +402,7 @@ namespace DeskMeter
             }
             double w = ft.Width;
             double dx = align == 1 ? -w : align == 2 ? -w / 2 : 0;
-            dc.DrawText(ft, new Point(x + dx, y));
+            DrawTextWithShadow(dc, ft, new Point(x + dx, y), b);
             return w;
         }
 

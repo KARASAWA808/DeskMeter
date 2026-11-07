@@ -97,7 +97,7 @@ namespace DeskMeter
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity;
 
         public MainWindow(string snapshotPath)
         {
@@ -452,6 +452,51 @@ namespace DeskMeter
             }
             menu.Items.Add(miOpacity);
 
+            miShadow = new WF.ToolStripMenuItem("文字の影・縁取り");
+            foreach (string[] opt in new[] { new[] { "auto", "自動 (背景が薄いとき)" }, new[] { "on", "常に" }, new[] { "off", "なし" } })
+            {
+                string v = opt[0];
+                var mi = Item(opt[1], delegate { cfg.TextShadow = v; view.InvalidateVisual(); cfg.Save(); });
+                mi.Tag = v;
+                miShadow.DropDownItems.Add(mi);
+            }
+            menu.Items.Add(miShadow);
+
+            miImages = new WF.ToolStripMenuItem("画像");
+            miImages.DropDownItems.Add(Item("マスコット画像を選ぶ...", delegate { PickImage(true); }));
+            miImages.DropDownItems.Add(Item("マスコット画像を外す", delegate { cfg.MascotImage = ""; view.Relayout(); cfg.Save(); }));
+            miMascotPlace = new WF.ToolStripMenuItem("マスコット画像の位置");
+            foreach (string[] opt in new[] { new[] { "free", "空きスペースに収める" }, new[] { "right", "右に並べる (立ち絵向け)" }, new[] { "left", "左に並べる (立ち絵向け)" } })
+            {
+                string v = opt[0];
+                var mi = Item(opt[1], delegate { cfg.MascotPlacement = v; view.Relayout(); cfg.Save(); });
+                mi.Tag = v;
+                miMascotPlace.DropDownItems.Add(mi);
+            }
+            miImages.DropDownItems.Add(miMascotPlace);
+            miMascotSize = new WF.ToolStripMenuItem("マスコット画像の大きさ");
+            foreach (int px in new[] { 120, 160, 220, 320, 480, 720 })
+            {
+                int v = px;
+                var mi = Item(v + " px", delegate { cfg.MascotSize = v; view.Relayout(); cfg.Save(); });
+                mi.Tag = v;
+                miMascotSize.DropDownItems.Add(mi);
+            }
+            miImages.DropDownItems.Add(miMascotSize);
+            miImages.DropDownItems.Add(new WF.ToolStripSeparator());
+            miImages.DropDownItems.Add(Item("背景画像を選ぶ...", delegate { PickImage(false); }));
+            miImages.DropDownItems.Add(Item("背景画像を外す", delegate { cfg.BackgroundImage = ""; view.InvalidateVisual(); cfg.Save(); }));
+            miBgImageOpacity = new WF.ToolStripMenuItem("背景画像の濃さ");
+            foreach (int p in new[] { 20, 35, 50, 75, 100 })
+            {
+                int pct = p;
+                var mi = Item(pct + "%", delegate { cfg.BackgroundImageOpacity = pct / 100.0; view.InvalidateVisual(); cfg.Save(); });
+                mi.Tag = pct;
+                miBgImageOpacity.DropDownItems.Add(mi);
+            }
+            miImages.DropDownItems.Add(miBgImageOpacity);
+            menu.Items.Add(miImages);
+
             miInterval = new WF.ToolStripMenuItem("更新間隔");
             foreach (int ms in new[] { 250, 500, 1000, 2000, 3000, 5000, 10000 })
             {
@@ -537,6 +582,10 @@ namespace DeskMeter
                     else if (mi.Tag is string) mi.Checked = cfg.HasPanel((string)mi.Tag);
                 }
                 miEdit.Checked = view.EditMode;
+                foreach (WF.ToolStripMenuItem mi in miShadow.DropDownItems) mi.Checked = (string)mi.Tag == cfg.TextShadow;
+                foreach (WF.ToolStripMenuItem mi in miMascotPlace.DropDownItems) mi.Checked = (string)mi.Tag == cfg.MascotPlacement;
+                foreach (WF.ToolStripMenuItem mi in miMascotSize.DropDownItems) mi.Checked = (int)mi.Tag == cfg.MascotSize;
+                foreach (WF.ToolStripMenuItem mi in miBgImageOpacity.DropDownItems) mi.Checked = (int)mi.Tag == (int)Math.Round(cfg.BackgroundImageOpacity * 100);
                 FillSkinMenu();   // skins フォルダーを見直す (追加・削除をメニューに反映)
                 foreach (WF.ToolStripItem it in miSkin.DropDownItems)
                 {
@@ -852,6 +901,25 @@ namespace DeskMeter
         }
 
         // help フォルダーの HTML を既定のブラウザーで開く (null ならフォルダー自体)
+        // 画像ファイルを選んで設定に入れる (mascot = true ならマスコット、false なら背景)
+        void PickImage(bool mascot)
+        {
+            try
+            {
+                using (var dlg = new WF.OpenFileDialog())
+                {
+                    dlg.Title = mascot ? "マスコット画像を選ぶ" : "背景画像を選ぶ";
+                    dlg.Filter = "画像 (*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp|すべてのファイル (*.*)|*.*";
+                    dlg.CheckFileExists = true;
+                    if (dlg.ShowDialog() != WF.DialogResult.OK) return;
+                    if (mascot) cfg.MascotImage = dlg.FileName; else cfg.BackgroundImage = dlg.FileName;
+                    view.Relayout();
+                    cfg.Save();
+                }
+            }
+            catch (Exception ex) { Log.Write("pick image", ex); }
+        }
+
         void OpenHelp(string file)
         {
             try

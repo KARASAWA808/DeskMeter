@@ -24,6 +24,14 @@ namespace DeskMeter
         public int HistorySeconds = 120;
         // 表示/非表示のグローバルホットキー (例 "Ctrl+Alt+D")。空文字で無効
         public string Hotkey = "";
+        // 文字の影・縁取り: "auto" (背景の不透明度が 50% 未満のとき) / "on" / "off"
+        public string TextShadow = "auto";
+        // 画像 (絶対パス、または exe のフォルダーからの相対パス)
+        public string BackgroundImage = "";
+        public double BackgroundImageOpacity = 0.35;   // 0〜1
+        public string MascotImage = "";                // 指定するとスキンの手描きマスコットの代わりに描く
+        public string MascotPlacement = "free";        // free (空きスペース) / right (右に並べる) / left
+        public int MascotSize = 220;                   // 画像の最大の高さ (px)
         // スキン名: Classic / Cyberpunk / Retro / Light、または skins\*.json のファイル名 (拡張子なし)
         public string Skin = "Classic";
         // 表示倍率 (1.0 = 100%)
@@ -102,7 +110,7 @@ namespace DeskMeter
             catch (Exception ex) { Log.Write("Settings.Backup", ex); }
         }
 
-        public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather" };
+        public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather", "rings" };
         public const int MaxColumns = 6;
 
         public static string PanelName(string id)
@@ -119,6 +127,7 @@ namespace DeskMeter
                 case "calendar": return "カレンダー";
                 case "datetile": return "日付タイル";
                 case "weather": return "天気";
+                case "rings": return "リングゲージ";
                 default: return id;
             }
         }
@@ -135,6 +144,7 @@ namespace DeskMeter
 
         static int DefaultColumn(string id)
         {
+            if (id == "rings") return 1;
             List<List<string>> d = DefaultLayout();
             for (int i = 0; i < d.Count; i++) if (d[i].Contains(id)) return i;
             return d.Count - 1;
@@ -193,6 +203,13 @@ namespace DeskMeter
             if (string.IsNullOrEmpty(Skin)) Skin = "Classic";
             if (AnchorH != "left") AnchorH = "right";
             if (AnchorV != "bottom") AnchorV = "top";
+            if (TextShadow != "on" && TextShadow != "off") TextShadow = "auto";
+            if (MascotPlacement != "right" && MascotPlacement != "left") MascotPlacement = "free";
+            if (MascotSize < 60 || MascotSize > 1200) MascotSize = 220;
+            if (double.IsNaN(BackgroundImageOpacity)) BackgroundImageOpacity = 0.35;
+            BackgroundImageOpacity = Math.Max(0, Math.Min(1, BackgroundImageOpacity));
+            if (BackgroundImage == null) BackgroundImage = "";
+            if (MascotImage == null) MascotImage = "";
             if (PingHost == null) PingHost = "";
             if (LocationName == null) LocationName = "";
         }

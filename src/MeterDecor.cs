@@ -243,6 +243,7 @@ namespace DeskMeter
         // いちばん空いている列の下にキャラクターを描く
         void DrawMascot(DrawingContext dc)
         {
+            if (DrawMascotImage(dc)) return;   // 画像が設定されていればそちらを使う
             if (string.IsNullOrEmpty(sk.Mascot) || cfg.Layout.Count == 0) return;
             int cols = cfg.Layout.Count;
             var bottoms = new double[cols];
@@ -256,7 +257,7 @@ namespace DeskMeter
             }
             if (best < 0 || bestFree < 64) return;
             double size = Math.Min(130, bestFree - 10);
-            double x = Gap + best * (ColW + Gap) + (ColW - size) / 2;
+            double x = Gap + best * (ColW + Gap) + (ColW - size) / 2 + (cfg.MascotPlacement == "left" ? sideExtra : 0);
             double y = contentH - 10 - size;
             DrawMascotAt(dc, x, y, size, sk.Mascot);
         }
