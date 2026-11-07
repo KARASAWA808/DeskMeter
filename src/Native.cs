@@ -44,6 +44,8 @@ namespace DeskMeter
         public static extern IntPtr RegisterPowerSettingNotification(IntPtr recipient, ref Guid setting, uint flags);
         [DllImport("user32.dll")]
         public static extern bool UnregisterPowerSettingNotification(IntPtr handle);
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
 
         [DllImport("shell32.dll")]
         static extern int SHQueryUserNotificationState(out int state);

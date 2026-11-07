@@ -357,11 +357,11 @@ namespace DeskMeter
                 // 画面が消えている間は計測しない (電源設定の通知を受け取る)
                 try { Guid g = Native.GUID_CONSOLE_DISPLAY_STATE; powerNotify = Native.RegisterPowerSettingNotification(hwnd, ref g, 0); }
                 catch (Exception pex) { Log.Write("power notify", pex); }
-                // 前面がフルスクリーンのアプリの間も止める (ゲーム中に nvidia-smi で GPU を邪魔しない)。3 秒ごとに見る。最前面モードでは見えているので止めない
+                // フルスクリーンのアプリが DeskMeter のあるモニターを覆っている間も止める (ゲーム中に nvidia-smi で GPU を邪魔しない)。3 秒ごとに見る。最前面モードでは見えているので止めない
                 fullscreenTimer.Interval = TimeSpan.FromSeconds(3);
                 fullscreenTimer.Tick += delegate
                 {
-                    bool fs = cfg.Mode != "topmost" && Native.FullscreenAppActive();
+                    bool fs = cfg.Mode != "topmost" && FullscreenCoversUs();
                     if (fs != fullscreenApp) { fullscreenApp = fs; UpdatePaused(); }
                 };
                 fullscreenTimer.Start();
@@ -374,6 +374,30 @@ namespace DeskMeter
             ApplyMode();
             ApplyClickThrough();
             ApplyHotkey();
+        }
+
+        // 前面のフルスクリーンのウィンドウが、DeskMeter の表示中の全ウィンドウのあるモニターを覆っているか。
+        // 別のモニターでゲームを全画面にしても、こちらのモニターに見えている間は止めない
+        bool FullscreenCoversUs()
+        {
+            try
+            {
+                if (!Native.FullscreenAppActive()) return false;
+                IntPtr fg = Native.GetForegroundWindow();
+                if (fg == IntPtr.Zero || IsOurWindow(fg)) return false;
+                Native.RECT r;
+                if (!Native.GetWindowRect(fg, out r)) return false;
+                var fgRect = new System.Drawing.Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+                bool any = false;
+                foreach (IntPtr wh in AllHwnds())
+                {
+                    if (wh == hwnd && hiddenByFloat) continue;   // 本体を隠して切り離しだけのときは本体のモニターは見ない
+                    any = true;
+                    if (!fgRect.Contains(WF.Screen.FromHandle(wh).Bounds)) return false;
+                }
+                return any;
+            }
+            catch { return false; }
         }
 
         IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
