@@ -829,12 +829,15 @@ namespace DeskMeter
             Header(dc, x, y, "", TilePurple, "Top CPU Meter", null);
             T(dc, "プロセス別の使用率", x + 46, y + 19, 12.5, Gray);
             y += 44;
+            // 真ん中はメモリ量ではなく CPU 使用率のバー (一番使っているプロセスを 100% とした相対値)
+            float max = 0.01f;
+            foreach (ProcRow p in st.Procs) if (p.Cpu > max) max = p.Cpu;
             for (int i = 0; i < st.Procs.Count; i++)
             {
                 ProcRow p = st.Procs[i];
                 Brush b = Palette[i % Palette.Length];
-                T(dc, p.Name, x, y, FS, b, 0, false, 100);
-                T(dc, BytesShort(p.Mem), x + 168, y, FS, b, 1);
+                T(dc, p.Name, x, y, FS, b, 0, false, 92);
+                Bar(dc, x + 98, y + 6, 66, 7, p.Cpu / max, b);
                 T(dc, p.Cpu.ToString("0.0", Inv) + "%", x + ColW, y, FS, b, 1);
                 y += RowH;
             }
