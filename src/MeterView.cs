@@ -233,6 +233,7 @@ namespace DeskMeter
                 case "datetile": return DrawDateTile(dc, x, y);
                 case "weather": return DrawWeather(dc, x, y);
                 case "rings": return DrawRings(dc, x, y);
+                case "memory": return DrawMemory(dc, x, y);
                 default: return y;
             }
         }
@@ -785,16 +786,14 @@ namespace DeskMeter
                 y += 16;
             }
 
-            double ramUsed = st.RamTotal > st.RamAvail ? st.RamTotal - st.RamAvail : 0;
-            double pageFree = st.PageTotal > st.PageUsed ? st.PageTotal - st.PageUsed : 0;
-            y = Triple(dc, x, y, "Used", "Free", "Total", White);
-            y = Triple(dc, x, y, Bytes(ramUsed), Bytes(st.RamAvail), Bytes(st.RamTotal), Cyan);
-            y = Triple(dc, x, y, Bytes(st.PageUsed), Bytes(pageFree), Bytes(st.PageTotal), Yellow) + 2;
-            double ram = st.RamTotal > 0 ? ramUsed / st.RamTotal : 0;
-            double page = st.PageTotal > 0 ? (double)st.PageUsed / st.PageTotal : 0;
-            Brush ramBrush = Level(ram, 0.85, 0.93, Cyan);   // メモリ逼迫を色で知らせる
-            y = BarRow(dc, x, y, ram, ramBrush, "RAM", Cyan, Pct(ram * 100), ramBrush);
-            y = BarRow(dc, x, y, page, Yellow, "Page", Yellow, Pct(page * 100), Yellow);
+            // タスクマネージャー風の情報行 (メモリは別パネルへ分けた)
+            T(dc, string.Format(Inv, "プロセス {0}  スレッド {1}  ハンドル {2}", st.ProcessCount, st.ThreadCount, st.HandleCount), x, y, 11.5, Gray, 0, false, ColW);
+            y += 17;
+            string topo = st.CpuCores > 0
+                ? string.Format(Ja, "物理 {0} コア / 論理 {1}   L3 {2} MB", st.CpuCores, st.Cores.Length, st.CpuL3KB / 1024)
+                : string.Format(Ja, "論理プロセッサ {0}", st.Cores.Length);
+            T(dc, topo, x, y, 12, Gray, 0, false, ColW);
+            y += 17;
             Sep(dc, x, y + 3);
             y += 8;
 

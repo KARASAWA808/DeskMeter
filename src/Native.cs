@@ -117,6 +117,20 @@ namespace DeskMeter
         public static extern ulong GetTickCount64();
         [DllImport("kernel32.dll")]
         public static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX m);
+        [DllImport("kernel32.dll")]
+        public static extern bool GetPhysicallyInstalledSystemMemory(out ulong totalKB);
+        [DllImport("psapi.dll", SetLastError = true)]
+        public static extern bool GetPerformanceInfo(ref PERFORMANCE_INFORMATION info, int size);
+
+        // GetPerformanceInfo の結果 (ページ数は PageSize 倍でバイト)
+        [StructLayout(LayoutKind.Sequential)]
+        public struct PERFORMANCE_INFORMATION
+        {
+            public int cb;
+            public UIntPtr CommitTotal, CommitLimit, CommitPeak, PhysicalTotal, PhysicalAvailable, SystemCache,
+                KernelTotal, KernelPaged, KernelNonpaged, PageSize;
+            public int HandleCount, ProcessCount, ThreadCount;
+        }
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr CreateJobObject(IntPtr attr, string name);
         [DllImport("kernel32.dll")]

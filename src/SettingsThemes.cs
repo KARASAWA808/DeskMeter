@@ -30,6 +30,26 @@ namespace DeskMeter
             FloatPositions.RemoveAll(delegate(FloatPos p) { return p == null || p.Id == null; });
         }
 
+        // CPU パネルからメモリを分離したとき、古い配置には memory パネルが無いので CPU の直後に足す。
+        // 列が画面に収まるよう、コアは 2 列表示にする (メニューで戻せる)
+        [System.Web.Script.Serialization.ScriptIgnore]
+        public bool pendingSave;   // 読み込み時の移行で変更があった (ファイルには書かない)
+
+        void MigrateMemoryPanel()
+        {
+            if (MemoryPanelAdded) return;
+            MemoryPanelAdded = true;
+            pendingSave = true;
+            if (HasPanel("memory")) return;
+            bool placed = false;
+            foreach (List<string> col in Layout)
+            {
+                int i = col.IndexOf("cpu");
+                if (i >= 0) { col.Insert(i + 1, "memory"); placed = true; CompactCores = true; break; }
+            }
+            if (!placed && Layout.Count > 0) Layout[Math.Min(1, Layout.Count - 1)].Add("memory");
+        }
+
         public FloatPos GetFloatPos(string id)
         {
             foreach (FloatPos p in FloatPositions) if (p.Id == id) return p;
@@ -102,7 +122,7 @@ namespace DeskMeter
             switch (name)
             {
                 case "wide":
-                    Layout = Cols(new[] { "gpu", "drives" }, new[] { "cpu" }, new[] { "network", "topmem" }, new[] { "clock", "calendar" }, new[] { "datetile", "weather", "topcpu" });
+                    Layout = Cols(new[] { "gpu", "drives" }, new[] { "cpu" }, new[] { "network", "memory", "topmem" }, new[] { "clock", "calendar" }, new[] { "datetile", "weather", "topcpu" });
                     CompactCores = true;
                     break;
                 case "sidebar":
@@ -112,7 +132,7 @@ namespace DeskMeter
                     Layout = Cols(new[] { "clock", "rings", "network" });
                     break;
                 case "dashboard":
-                    Layout = Cols(new[] { "gpu", "network", "drives" }, new[] { "cpu" }, new[] { "rings", "topcpu", "topmem" }, new[] { "clock", "calendar", "datetile", "weather" });
+                    Layout = Cols(new[] { "gpu", "network", "drives" }, new[] { "cpu", "memory" }, new[] { "rings", "topcpu", "topmem" }, new[] { "clock", "calendar", "datetile", "weather" });
                     CompactCores = true;
                     break;
                 case "floating":

@@ -165,6 +165,70 @@ namespace DeskMeter
             return true;
         }
 
+        // ---------------------------------------------------------------- メモリ (タスクマネージャーの「メモリ」風)
+
+        double DrawMemory(DrawingContext dc, double x, double y)
+        {
+            double used = st.RamTotal > st.RamAvail ? (double)(st.RamTotal - st.RamAvail) : 0;
+            double frac = st.RamTotal > 0 ? used / st.RamTotal : 0;
+            Header(dc, x, y, "", TileTeal, "Memory Meter", Pct(frac * 100));
+            string sub;
+            if (!st.HwStaticReady) sub = "取得中...";
+            else
+            {
+                var parts = new System.Collections.Generic.List<string>();
+                if (st.MemType != null) parts.Add(st.MemType);
+                if (st.MemSpeedMHz > 0) parts.Add(st.MemSpeedMHz.ToString(Inv) + "MHz");
+                if (st.MemSlotsTotal > 0) parts.Add(string.Format(Inv, "{0}/{1}枚", st.MemSlotsUsed, st.MemSlotsTotal));
+                if (st.MemFormFactor != null) parts.Add(st.MemFormFactor);
+                sub = parts.Count > 0 ? string.Join(" ", parts.ToArray()) : Bytes(st.RamTotal);
+            }
+            T(dc, sub, x + 46, y + 19, 12.5, Yellow, 0, false, ColW - 46);
+            y += 44;
+
+            Brush ramBrush = Level(frac, 0.85, 0.93, Cyan);   // 逼迫したら色で知らせる
+            Bar(dc, x, y + 4, ColW, 9, frac, ramBrush);
+            y += 20;
+            bool comp = !double.IsNaN(st.Compressed) && st.Compressed > 0;
+            y = KeyValue(dc, x, y, comp ? "使用中 (圧縮)" : "使用中", Cyan, Bytes(used) + (comp ? " (" + BytesShort(st.Compressed) + ")" : ""), ramBrush);
+            y = KeyValue(dc, x, y, "使用可能", Green, Bytes(st.RamAvail), Green);
+            y = KeyValue(dc, x, y, "コミット済み", Yellow, Bytes(st.CommitUsed) + " / " + Bytes(st.CommitLimit), Yellow);
+            y = KeyValue(dc, x, y, "キャッシュ済み", Violet, Bytes(st.Cached), Violet);
+            y = KeyValue(dc, x, y, "ページプール", Orange, Bytes(st.PoolPaged), Orange);
+            y = KeyValue(dc, x, y, "非ページプール", Orange, Bytes(st.PoolNonpaged), Orange);
+            y = KeyValue(dc, x, y, "ハードウェア予約", Gray, Bytes(st.HwReserved), Gray);
+            y = KeyValue(dc, x, y, "ページファイル", Magenta, Bytes(st.PageUsed) + " / " + Bytes(st.PageTotal), Magenta);
+
+            // メモリ構成: 使用中 | 変更済み | スタンバイ | 空き
+            T(dc, "メモリ構成", x, y, 11.5, Gray);
+            y += 15;
+            double total = st.RamTotal;
+            double standby = double.IsNaN(st.Standby) ? 0 : st.Standby, modified = double.IsNaN(st.Modified) ? 0 : st.Modified, free = double.IsNaN(st.FreeMem) ? 0 : st.FreeMem;
+            double inUse = Math.Max(0, total - standby - modified - free);
+            double[] segs = { inUse, modified, standby, free };
+            Brush[] segBrush = { ramBrush, Violet, Blue, Track };
+            string[] segName = { "使用中", "変更済み", "スタンバイ", "空き" };
+            dc.DrawRectangle(Track, null, new Rect(x, y, ColW, 14));
+            double sx = x;
+            for (int i = 0; i < 4 && total > 0; i++)
+            {
+                double w = ColW * segs[i] / total;
+                if (w > 0.5) dc.DrawRectangle(segBrush[i], null, new Rect(sx, y, Math.Min(w, x + ColW - sx), 14));
+                sx += w;
+            }
+            dc.DrawRectangle(null, GraphBorder, new Rect(x + 0.5, y + 0.5, ColW - 1, 13));
+            y += 18;
+            double lx = x;
+            for (int i = 0; i < 4; i++)
+            {
+                dc.DrawRectangle(segBrush[i], GraphBorder, new Rect(lx, y + 3, 8, 8));
+                lx += 11 + T(dc, segName[i] + " " + BytesShort(segs[i]), lx + 11, y, 10.5, Gray) + 7;
+            }
+            y += 18;
+            Graph(dc, new Rect(x, y, ColW, 40), new[] { st.RamHist }, new[] { Skin.P(Cyan, 1.3) }, 100);
+            return y + 40;
+        }
+
         // ---------------------------------------------------------------- リングゲージ
 
         double DrawRings(DrawingContext dc, double x, double y)

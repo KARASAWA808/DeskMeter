@@ -89,6 +89,15 @@ namespace DeskMeter
         public Hist[] CoreHist = new Hist[0];
 
         public ulong RamTotal, RamAvail, PageTotal, PageUsed;
+        // メモリの詳細 (タスクマネージャーの「メモリ」相当)。NaN = 不明
+        public double CommitUsed = double.NaN, CommitLimit = double.NaN, Cached = double.NaN, PoolPaged = double.NaN, PoolNonpaged = double.NaN,
+            HwReserved = double.NaN, Standby = double.NaN, Modified = double.NaN, FreeMem = double.NaN, Compressed = double.NaN;
+        public int ProcessCount, ThreadCount, HandleCount;
+        public Hist RamHist = new Hist(HistLen);
+        // WMI から 1 回だけ取る静的な情報 (取れるまで null / 0)
+        public string MemType, MemFormFactor;
+        public int MemSpeedMHz, MemSlotsUsed, MemSlotsTotal, CpuCores, CpuL3KB;
+        public bool HwStaticReady;
 
         public bool GpuOk;
         public DateTime GpuStamp;
@@ -131,7 +140,7 @@ namespace DeskMeter
         public volatile bool Paused;
 
         readonly PdhQuery pdh = new PdhQuery();
-        IntPtr hCores, hPerf, hFreq, hRead, hWrite, hIdle, hPage;
+        IntPtr hCores, hPerf, hFreq, hRead, hWrite, hIdle, hPage, hStandby1, hStandby2, hStandby3, hModified, hFreeZero;
         readonly List<string> coreNames = new List<string>(64);
         readonly List<double> coreValues = new List<double>(64);
         readonly List<KeyValuePair<int, float>> coreSorted = new List<KeyValuePair<int, float>>(64);
@@ -271,6 +280,7 @@ namespace DeskMeter
                 S.UpHist = new Hist(netCap); S.DownHist = new Hist(netCap);
                 S.ReadHist = new Hist(cap); S.WriteHist = new Hist(cap);
                 S.ProcHist = new Hist(procCap);
+                S.RamHist = new Hist(cap);
                 for (int i = 0; i < S.CoreHist.Length; i++) S.CoreHist[i] = new Hist(cap);
             }
         }
@@ -307,6 +317,7 @@ namespace DeskMeter
             catch (Exception ex) { Log.Write("init.cpuname", ex); }
 
             StartSmi();
+            StartStaticInfo();
 
             // パフォーマンスカウンター (PDH)。"% Processor Utility" はタスクマネージャーと同じ基準の使用率。
             if (pdh.Open())
@@ -320,6 +331,11 @@ namespace DeskMeter
                 hWrite = pdh.Add(@"\PhysicalDisk(_Total)\Disk Write Bytes/sec");
                 hIdle = pdh.Add(@"\PhysicalDisk(_Total)\% Idle Time");
                 hPage = pdh.Add(@"\Paging File(_Total)\% Usage");
+                hStandby1 = pdh.Add(@"\Memory\Standby Cache Normal Priority Bytes");
+                hStandby2 = pdh.Add(@"\Memory\Standby Cache Reserve Bytes");
+                hStandby3 = pdh.Add(@"\Memory\Standby Cache Core Bytes");
+                hModified = pdh.Add(@"\Memory\Modified Page List Bytes");
+                hFreeZero = pdh.Add(@"\Memory\Free & Zero Page List Bytes");
                 pdh.Collect();
             }
             else Log.Write("pdh", new InvalidOperationException("PdhOpenQuery failed"));
@@ -399,12 +415,125 @@ namespace DeskMeter
             if (!Native.GlobalMemoryStatusEx(ref m)) return;
             ulong pageTotal = m.ullTotalPageFile > m.ullTotalPhys ? m.ullTotalPageFile - m.ullTotalPhys : 0;
             float pagePct = Val(pdh.Value(hPage));
+
+            // タスクマネージャーの「メモリ」と同じ内訳
+            var pi = new Native.PERFORMANCE_INFORMATION();
+            pi.cb = Marshal.SizeOf(typeof(Native.PERFORMANCE_INFORMATION));
+            bool piOk = Native.GetPerformanceInfo(ref pi, pi.cb);
+            double page = piOk ? (double)pi.PageSize.ToUInt64() : 4096;
+            double standby = Sum3(pdh.Value(hStandby1), pdh.Value(hStandby2), pdh.Value(hStandby3));
+            double modified = pdh.Value(hModified), freeZero = pdh.Value(hFreeZero);
+            ulong installedKB;
+            double hwReserved = double.NaN;
+            if (Native.GetPhysicallyInstalledSystemMemory(out installedKB) && installedKB * 1024.0 >= m.ullTotalPhys)
+                hwReserved = installedKB * 1024.0 - m.ullTotalPhys;
+
             lock (S)
             {
                 S.RamTotal = m.ullTotalPhys;
                 S.RamAvail = m.ullAvailPhys;
                 S.PageTotal = pageTotal;
                 S.PageUsed = (ulong)(pageTotal * (double)Math.Min(100f, pagePct) / 100.0);
+                if (piOk)
+                {
+                    S.CommitUsed = pi.CommitTotal.ToUInt64() * page;
+                    S.CommitLimit = pi.CommitLimit.ToUInt64() * page;
+                    S.PoolPaged = pi.KernelPaged.ToUInt64() * page;
+                    S.PoolNonpaged = pi.KernelNonpaged.ToUInt64() * page;
+                    S.ProcessCount = pi.ProcessCount;
+                    S.ThreadCount = pi.ThreadCount;
+                    S.HandleCount = pi.HandleCount;
+                }
+                S.Standby = standby;
+                S.Modified = modified;
+                S.FreeMem = freeZero;
+                S.Cached = double.IsNaN(standby) || double.IsNaN(modified) ? double.NaN : standby + modified;
+                S.HwReserved = hwReserved;
+                S.RamHist.Add(m.ullTotalPhys > 0 ? (float)(100.0 * (m.ullTotalPhys - m.ullAvailPhys) / m.ullTotalPhys) : 0);
+            }
+        }
+
+        static double Sum3(double a, double b, double c)
+        {
+            if (double.IsNaN(a) && double.IsNaN(b) && double.IsNaN(c)) return double.NaN;
+            return (double.IsNaN(a) ? 0 : a) + (double.IsNaN(b) ? 0 : b) + (double.IsNaN(c) ? 0 : c);
+        }
+
+        // メモリの種類・速度・スロット数と CPU のコア数を WMI から 1 回だけ取る (数百 ms かかるので別スレッド)
+        void StartStaticInfo()
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string type = null, form = null;
+                int speed = 0, used = 0, total = 0, cores = 0, l3 = 0;
+                try
+                {
+                    using (var s = new System.Management.ManagementObjectSearcher("SELECT Speed, FormFactor, SMBIOSMemoryType, MemoryType FROM Win32_PhysicalMemory"))
+                        foreach (System.Management.ManagementObject mo in s.Get())
+                        {
+                            used++;
+                            int sp = ToInt(mo["Speed"]);
+                            if (sp > speed) speed = sp;
+                            if (type == null) type = MemTypeName(ToInt(mo["SMBIOSMemoryType"]), ToInt(mo["MemoryType"]));
+                            if (form == null) form = FormFactorName(ToInt(mo["FormFactor"]));
+                        }
+                    using (var s = new System.Management.ManagementObjectSearcher("SELECT MemoryDevices FROM Win32_PhysicalMemoryArray"))
+                        foreach (System.Management.ManagementObject mo in s.Get()) total += ToInt(mo["MemoryDevices"]);
+                    using (var s = new System.Management.ManagementObjectSearcher("SELECT NumberOfCores, L3CacheSize FROM Win32_Processor"))
+                        foreach (System.Management.ManagementObject mo in s.Get()) { cores += ToInt(mo["NumberOfCores"]); l3 += ToInt(mo["L3CacheSize"]); }
+                }
+                catch (Exception ex) { Log.Write("wmi", ex); }
+                lock (S)
+                {
+                    S.MemType = type; S.MemFormFactor = form; S.MemSpeedMHz = speed;
+                    S.MemSlotsUsed = used; S.MemSlotsTotal = total; S.CpuCores = cores; S.CpuL3KB = l3;
+                    S.HwStaticReady = true;
+                }
+            });
+        }
+
+        static int ToInt(object o)
+        {
+            try { return o == null ? 0 : Convert.ToInt32(o, CultureInfo.InvariantCulture); }
+            catch { return 0; }
+        }
+
+        static string MemTypeName(int smbios, int legacy)
+        {
+            switch (smbios)
+            {
+                case 20: return "DDR";
+                case 21: return "DDR2";
+                case 24: return "DDR3";
+                case 26: return "DDR4";
+                case 27: return "LPDDR";
+                case 28: return "LPDDR2";
+                case 29: return "LPDDR3";
+                case 30: return "LPDDR4";
+                case 34: return "DDR5";
+                case 35: return "LPDDR5";
+            }
+            switch (legacy)
+            {
+                case 20: return "DDR";
+                case 21: return "DDR2";
+                case 24: return "DDR3";
+                case 26: return "DDR4";
+            }
+            return null;
+        }
+
+        static string FormFactorName(int f)
+        {
+            switch (f)
+            {
+                case 8: return "DIMM";
+                case 12: return "SODIMM";
+                case 9: return "TSOP";
+                case 11: return "RIMM";
+                case 13: return "SRIMM";
+                case 0: return null;
+                default: return "その他";
             }
         }
 
@@ -560,6 +689,7 @@ namespace DeskMeter
             var agg = new Dictionary<string, ProcRow>(256, StringComparer.OrdinalIgnoreCase);
             long basePtr = procBuf.ToInt64(), off = 0;
             float total = 0;
+            double compressed = double.NaN;
             while (true)
             {
                 IntPtr p = new IntPtr(basePtr + off);
@@ -573,6 +703,7 @@ namespace DeskMeter
                     IntPtr nameBuf = Marshal.ReadIntPtr(p, 0x40);
                     string name = nameLen > 0 && nameBuf != IntPtr.Zero ? Marshal.PtrToStringUni(nameBuf, nameLen / 2) : "System";
                     if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
+                    if (name == "MemCompression") compressed = priv;   // 圧縮メモリの量 (タスクマネージャーの「圧縮」)
 
                     times[pid] = t;
                     float cpu = 0;
@@ -609,6 +740,7 @@ namespace DeskMeter
             {
                 S.Procs = list;
                 S.MemProcs = byMem;
+                S.Compressed = compressed;
                 S.ProcHist.Add(Math.Min(100f, total));
             }
         }

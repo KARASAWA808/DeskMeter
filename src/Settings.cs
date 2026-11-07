@@ -24,6 +24,8 @@ namespace DeskMeter
         public int HistorySeconds = 120;
         // 表示/非表示のグローバルホットキー (例 "Ctrl+Alt+D")。空文字で無効
         public string Hotkey = "";
+        // メモリパネルを CPU から分けたときの移行済みフラグ (古い設定に memory パネルを足すため)
+        public bool MemoryPanelAdded = false;
         // 文字の影・縁取り: "auto" (背景の不透明度が 50% 未満のとき) / "on" / "off"
         public string TextShadow = "auto";
         // 画像 (絶対パス、または exe のフォルダーからの相対パス)
@@ -92,6 +94,7 @@ namespace DeskMeter
                 var s = new JavaScriptSerializer().Deserialize<Settings>(File.ReadAllText(FilePath, Encoding.UTF8));
                 if (s == null) { broken = true; return null; }
                 s.Normalize();
+                if (s.pendingSave) { s.pendingSave = false; s.Save(); }   // 移行で配置を変えたらすぐ保存
                 return s;
             }
             catch (Exception ex)
@@ -113,7 +116,7 @@ namespace DeskMeter
             catch (Exception ex) { Log.Write("Settings.Backup", ex); }
         }
 
-        public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather", "rings" };
+        public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather", "rings", "memory" };
         public const int MaxColumns = 6;
 
         public static string PanelName(string id)
@@ -131,6 +134,7 @@ namespace DeskMeter
                 case "datetile": return "日付タイル";
                 case "weather": return "天気";
                 case "rings": return "リングゲージ";
+                case "memory": return "メモリ (詳細)";
                 default: return id;
             }
         }
@@ -140,14 +144,14 @@ namespace DeskMeter
         {
             var l = new List<List<string>>();
             l.Add(new List<string>(new[] { "gpu", "network", "drives", "topmem" }));
-            l.Add(new List<string>(new[] { "cpu", "topcpu" }));
+            l.Add(new List<string>(new[] { "cpu", "memory", "topcpu" }));
             l.Add(new List<string>(new[] { "clock", "calendar", "datetile", "weather" }));
             return l;
         }
 
         static int DefaultColumn(string id)
         {
-            if (id == "rings") return 1;
+            if (id == "rings" || id == "memory") return 1;
             List<List<string>> d = DefaultLayout();
             for (int i = 0; i < d.Count; i++) if (d[i].Contains(id)) return i;
             return d.Count - 1;
@@ -198,6 +202,7 @@ namespace DeskMeter
         void Normalize()
         {
             CleanLayout();
+            MigrateMemoryPanel();
             if (double.IsNaN(Scale) || Scale < 0.5 || Scale > 3) Scale = 1.0;
             if (double.IsNaN(BackgroundOpacity)) BackgroundOpacity = 0.82;
             BackgroundOpacity = Math.Max(0, Math.Min(1, BackgroundOpacity));
