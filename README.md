@@ -69,4 +69,4 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ## ライセンス
 
-未定（公開時に決めてください。個人利用・改変は自由にどうぞ）。
+[MIT License](LICENSE)
