@@ -100,7 +100,7 @@ namespace DeskMeter
         public bool HwStaticReady;
 
         public bool GpuOk;
-        public DateTime GpuStamp;
+        public long GpuStamp;   // 最後に nvidia-smi から値を受け取った時刻 (GetTickCount64)
         public string GpuName = "GPU";
         public float GpuUtil, GpuTemp, VramUsedMB, VramTotalMB, GpuPowerW, GpuPowerLimitW, GpuClock, GpuMemClock, GpuFan;
         public Hist GpuUtilHist = new Hist(HistLen), GpuTempHist = new Hist(HistLen);
@@ -150,12 +150,20 @@ namespace DeskMeter
         sealed class NetPrev { public long Rx, Tx; public bool Seen; }
         readonly Dictionary<string, NetPrev> netPrev = new Dictionary<string, NetPrev>();
         bool netPrimed;
+        // アダプターの列挙は重いので 30 秒ごと (またはネットワーク構成の変化時) にだけ行い、毎回は統計だけを読む
+        sealed class NetAdapter { public NetworkInterface Ni; public string Id, Ip; }
+        readonly List<NetAdapter> nics = new List<NetAdapter>();
+        volatile bool nicsDirty = true;
+        long nicsNext;
 
         Process smi;
         IntPtr job = IntPtr.Zero;
-        DateTime smiRetryAt = DateTime.MinValue;
-        int smiRetrySec = 30;          // 失敗するたびに倍にする (最大 10 分)
+        long smiRetryAt;               // 次に nvidia-smi を起動してよい時刻 (GetTickCount64 基準)
+        int smiRetrySec = 30;          // 1 行も出力しないまま終了するたびに倍にする (最大 10 分)
+        int smiIntervalSec = 1;        // 起動中の nvidia-smi に渡した -l の値
+        volatile bool smiGotLine;      // いまの nvidia-smi から 1 行でも受け取ったか
         bool smiGaveUp, smiFailLogged; // nvidia-smi が無い環境では一度だけ記録して以後は起動しない
+        bool smiPausedKill;            // 非表示・ロック中に止めたので、再開時にすぐ起動し直す
 
         readonly HwInfo hwinfo = new HwInfo();
 
@@ -170,6 +178,9 @@ namespace DeskMeter
 
         public Sampler(Settings cfg) { this.cfg = cfg; }
 
+        // 1 回の計測が終わるたびに (サンプラースレッドで) 呼ばれる。UI はこれを合図に再描画する
+        public event Action Sampled;
+
         public void Start()
         {
             thread = new Thread(Loop);
@@ -183,8 +194,32 @@ namespace DeskMeter
         {
             stopEvent.Set();
             KillSmi();
+            try
+            {
+                SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+                NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
+                NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+            }
+            catch { }
             if (thread != null) thread.Join(1500);
         }
+
+        // スリープ復帰の直後は、差分で出す値 (通信速度・プロセスの CPU%) が眠っていた時間を含んで膨らむので一度捨てる
+        void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+        {
+            if (e.Mode != PowerModes.Resume) return;
+            netPrimed = false;
+            procStamp = 0;
+            nicsDirty = true;
+            // 天気は眠っていた分だけ古いので、落ち着いたころに取り直す
+            weatherNext = DateTime.Now.AddSeconds(20);
+            Poke();
+        }
+
+        void OnNetworkChanged(object sender, EventArgs e) { nicsDirty = true; }
+        void OnNetworkAvailabilityChanged(object sender, NetworkAvailabilityEventArgs e) { nicsDirty = true; }
+
+        static long Tick() { return (long)Native.GetTickCount64(); }
 
         // 待ち時間を打ち切って次の計測をすぐ始める (更新間隔の変更時など)
         public void Poke()
@@ -214,15 +249,18 @@ namespace DeskMeter
                 {
                     if (Paused)
                     {
-                        // 隠している間・ロック中は計測しない。500ms ごとに様子を見る
+                        // 隠している間・ロック中は計測しない。nvidia-smi も止めて GPU への問い合わせを無くす。500ms ごとに様子を見る
+                        if (smi != null) { KillSmi(); smiPausedKill = true; }
                         if (WaitHandle.WaitAny(handles, 500) == 0) break;
                         continue;
                     }
+                    if (smiPausedKill) { smiPausedKill = false; smiRetryAt = 0; }
                     int interval = Math.Max(250, Math.Min(10000, cfg.IntervalMs));
                     // グラフの時間幅 (HistorySeconds) と間隔から履歴の長さを決める
                     int secs = Math.Max(30, Math.Min(1800, cfg.HistorySeconds));
                     if (secs != histSeconds || interval != histInterval) ResizeHist(secs, interval);
                     long t0 = sw.ElapsedMilliseconds;
+                    long pst = Profiler.Enabled ? Stopwatch.GetTimestamp() : 0;
 
                     Safe("cpu", SampleCpu);
                     Safe("mem", SampleMemory);
@@ -238,10 +276,13 @@ namespace DeskMeter
                     Safe("gpu", WatchSmi);
                     // 重めの処理は間隔が短くても一定時間ごとにしか行わない
                     if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
-                    if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(5000, interval); }
+                    if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(30000, interval); }   // 容量は分単位でしか変わらない
                     if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
                     if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
                     if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
+                    if (Profiler.Enabled) Profiler.Sample(Stopwatch.GetTimestamp() - pst);
+                    Action h = Sampled;
+                    if (h != null) h();
 
                     int wait = interval - (int)(sw.ElapsedMilliseconds - t0);
                     if (wait < 50) wait = 50;
@@ -318,6 +359,13 @@ namespace DeskMeter
 
             StartSmi();
             StartStaticInfo();
+            try
+            {
+                SystemEvents.PowerModeChanged += OnPowerModeChanged;
+                NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+                NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+            }
+            catch (Exception ex) { Log.Write("init.events", ex); }
 
             // パフォーマンスカウンター (PDH)。"% Processor Utility" はタスクマネージャーと同じ基準の使用率。
             if (pdh.Open())
@@ -575,22 +623,20 @@ namespace DeskMeter
         {
             long rx = 0, tx = 0, dRx = 0, dTx = 0;
             string ip = null;
+            long now = Tick();
+            if (nicsDirty || now >= nicsNext) RefreshAdapters();
             foreach (NetPrev v in netPrev.Values) v.Seen = false;
-            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            foreach (NetAdapter a in nics)
             {
                 try
                 {
-                    if (ni.OperationalStatus != OperationalStatus.Up) continue;
-                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
-                    IPInterfaceProperties props = ni.GetIPProperties();
-                    if (props.GatewayAddresses.Count == 0) continue;   // 仮想スイッチなど外に出ないアダプターは除外
-                    IPInterfaceStatistics st = ni.GetIPStatistics();   // IPv4 の無いアダプターでも例外にならない
+                    IPInterfaceStatistics st = a.Ni.GetIPStatistics();   // 統計は呼ぶたびに OS から取り直される
                     long r = st.BytesReceived, t = st.BytesSent;
                     rx += r;
                     tx += t;
                     // 差分はアダプター単位で取る。新しく現れたアダプターは今回は差分なし (次回から)
                     NetPrev prev;
-                    if (netPrev.TryGetValue(ni.Id, out prev))
+                    if (netPrev.TryGetValue(a.Id, out prev))
                     {
                         if (r >= prev.Rx && t >= prev.Tx) { dRx += r - prev.Rx; dTx += t - prev.Tx; }
                         prev.Rx = r; prev.Tx = t; prev.Seen = true;
@@ -599,17 +645,16 @@ namespace DeskMeter
                     {
                         prev = new NetPrev();
                         prev.Rx = r; prev.Tx = t; prev.Seen = true;
-                        netPrev[ni.Id] = prev;
+                        netPrev[a.Id] = prev;
                     }
-                    if (ip == null)
-                    {
-                        foreach (UnicastIPAddressInformation u in props.UnicastAddresses)
-                        {
-                            if (u.Address.AddressFamily == AddressFamily.InterNetwork) { ip = u.Address.ToString(); break; }
-                        }
-                    }
+                    if (ip == null) ip = a.Ip;
                 }
-                catch (Exception ex) { Log.Write("net." + ni.Name, ex); }   // 1 つのアダプターで失敗しても他は数える
+                catch (Exception ex)
+                {
+                    // 抜かれたアダプターなど。次回は列挙し直す
+                    nicsDirty = true;
+                    Log.Write("net." + a.Ni.Name, ex);
+                }
             }
             // 消えたアダプターは忘れる (戻ってきたときに巨大な差分を出さないため)
             var gone = new List<string>();
@@ -634,6 +679,33 @@ namespace DeskMeter
                 S.IntIp = ip;
                 S.DownHist.Add((float)down);
                 S.UpHist.Add((float)up);
+            }
+        }
+
+        // 外に出られるアダプター (ゲートウェイがあり、ループバック・トンネル以外) を列挙し直す
+        void RefreshAdapters()
+        {
+            nicsDirty = false;
+            nicsNext = Tick() + 30000;
+            nics.Clear();
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                try
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+                    IPInterfaceProperties props = ni.GetIPProperties();
+                    if (props.GatewayAddresses.Count == 0) continue;   // 仮想スイッチなど外に出ないアダプターは除外
+                    var a = new NetAdapter();
+                    a.Ni = ni;
+                    a.Id = ni.Id;
+                    foreach (UnicastIPAddressInformation u in props.UnicastAddresses)
+                    {
+                        if (u.Address.AddressFamily == AddressFamily.InterNetwork) { a.Ip = u.Address.ToString(); break; }
+                    }
+                    nics.Add(a);
+                }
+                catch (Exception ex) { Log.Write("net." + ni.Name, ex); }   // 1 つのアダプターで失敗しても他は数える
             }
         }
 
@@ -760,8 +832,11 @@ namespace DeskMeter
             }
             try
             {
+                // 問い合わせの周期は更新間隔に合わせる (1 秒未満の間隔でも 1 秒)
+                smiIntervalSec = SmiInterval();
+                smiGotLine = false;
                 var psi = new ProcessStartInfo("nvidia-smi.exe",
-                    "-i 0 --query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total,power.draw,power.limit,clocks.gr,clocks.mem,fan.speed --format=csv,noheader,nounits -l 1");
+                    "-i 0 --query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total,power.draw,power.limit,clocks.gr,clocks.mem,fan.speed --format=csv,noheader,nounits -l " + smiIntervalSec);
                 psi.UseShellExecute = false;
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
@@ -786,7 +861,6 @@ namespace DeskMeter
                 catch { }
                 p.BeginOutputReadLine();
                 smi = p;
-                smiRetrySec = 30;
             }
             catch (Exception ex)
             {
@@ -801,11 +875,17 @@ namespace DeskMeter
                 }
                 // それ以外の失敗は記録は初回だけにして、再試行の間隔を倍々で伸ばす (最大 10 分)
                 if (!smiFailLogged) { smiFailLogged = true; Log.Write("nvidia-smi", ex); }
-                smiRetryAt = DateTime.Now.AddSeconds(smiRetrySec);
+                smiRetryAt = Tick() + smiRetrySec * 1000L;
                 smiRetrySec = Math.Min(600, smiRetrySec * 2);
                 return;
             }
-            smiRetryAt = DateTime.Now.AddSeconds(smiRetrySec);
+            // 起動できても、出力が無いまま終了した場合は WatchSmi 側で間隔を伸ばす。再起動はこの間隔より速くしない
+            smiRetryAt = Tick() + smiRetrySec * 1000L;
+        }
+
+        int SmiInterval()
+        {
+            return Math.Max(1, Math.Min(10, cfg.IntervalMs / 1000));
         }
 
         void WatchSmi()
@@ -814,10 +894,32 @@ namespace DeskMeter
             bool dead;
             try { dead = p == null || p.HasExited; }
             catch { dead = true; }
-            if (dead && !smiGaveUp && DateTime.Now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
+            long now = Tick();
+            if (dead && p != null)
+            {
+                // 終了を初めて検出した。1 行も出力しないまま終わった (ドライバーだけ残っている等) なら再試行を倍々で遅らせる
+                smi = null;
+                try { p.Dispose(); } catch { }
+                if (!smiGotLine)
+                {
+                    smiRetrySec = Math.Min(600, smiRetrySec * 2);
+                    if (smiRetrySec >= 600 && !smiFailLogged)
+                    {
+                        smiFailLogged = true;
+                        Log.Write("nvidia-smi exits without output; retrying every 10 minutes", null);
+                    }
+                }
+                smiRetryAt = now + smiRetrySec * 1000L;
+            }
+            else if (!dead && smiIntervalSec != SmiInterval())
+            {
+                StartSmi();   // 更新間隔が変わったので問い合わせの周期を合わせ直す
+                dead = false;
+            }
+            if (dead && !smiGaveUp && now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
             lock (S)
             {
-                if (S.GpuOk && (DateTime.Now - S.GpuStamp).TotalSeconds > 6) S.GpuOk = false;
+                if (S.GpuOk && now - S.GpuStamp > smiIntervalSec * 3000L + 3000) S.GpuOk = false;
                 // 履歴は他のグラフと同じ間隔で積む
                 S.GpuUtilHist.Add(S.GpuOk ? S.GpuUtil : 0);
                 S.GpuTempHist.Add(S.GpuOk ? S.GpuTemp : 0);
@@ -844,6 +946,7 @@ namespace DeskMeter
             if (string.IsNullOrEmpty(e.Data)) return;
             string[] f = e.Data.Split(',');
             if (f.Length < 10) return;
+            if (!smiGotLine) { smiGotLine = true; smiRetrySec = 30; }   // 動いているので再試行の間隔を戻す
             lock (S)
             {
                 string name = f[0].Trim();
@@ -859,7 +962,7 @@ namespace DeskMeter
                 S.GpuMemClock = Num(f[8]);
                 S.GpuFan = Num(f[9]);
                 S.GpuOk = !float.IsNaN(S.GpuUtil);
-                S.GpuStamp = DateTime.Now;
+                S.GpuStamp = Tick();
             }
         }
 
@@ -902,6 +1005,8 @@ namespace DeskMeter
                 "&timezone=auto&forecast_days=4", cfg.Latitude, cfg.Longitude);
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Timeout = 10000;
+            req.ReadWriteTimeout = 10000;   // 本文の受信が途中で止まったときも 10 秒で諦める (既定は 5 分)
+            req.AutomaticDecompression = DecompressionMethods.GZip;   // deflate は zlib 形式で返るサーバーがあり .NET では展開できない
             req.UserAgent = "DeskMeter/1.0";
             string json;
             using (WebResponse resp = req.GetResponse())

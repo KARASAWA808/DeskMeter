@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -226,7 +227,7 @@ namespace DeskMeter
                 T(dc, segName[i] + " " + BytesShort(segs[i]), lx + 11, ly, 10.5, Gray, 0, false, ColW / 2 - 14);
             }
             y += 32;
-            Graph(dc, new Rect(x, y, ColW, 40), new[] { st.RamHist }, new[] { Skin.P(Cyan, 1.3) }, 100);
+            Graph(dc, new Rect(x, y, ColW, 40), new[] { st.RamHist }, new[] { PenCyan }, 100);
             return y + 40;
         }
 
@@ -255,20 +256,28 @@ namespace DeskMeter
             return y + 2 * (r * 2 + labelH + 10);
         }
 
-        // 左下から時計回りに 270° のリング
-        void Ring(DrawingContext dc, double cx, double cy, double r, double thick, double frac, Brush color)
+        // リング用のペンはスキンごとに 1 回だけ作る (ClearCaches で捨てる)
+        readonly Dictionary<Brush, Pen> ringPens = new Dictionary<Brush, Pen>();
+        Pen ringTrack;
+
+        static Pen RoundPen(Brush b, double thick)
         {
-            var track = new Pen(Track, thick);
-            track.StartLineCap = PenLineCap.Round;
-            track.EndLineCap = PenLineCap.Round;
-            track.Freeze();
-            dc.DrawGeometry(null, track, Arc(cx, cy, r, 135, 270));
-            frac = Math.Max(0, Math.Min(1, frac));
-            if (frac < 0.005) return;
-            var pen = new Pen(color, thick);
+            var pen = new Pen(b, thick);
             pen.StartLineCap = PenLineCap.Round;
             pen.EndLineCap = PenLineCap.Round;
             pen.Freeze();
+            return pen;
+        }
+
+        // 左下から時計回りに 270° のリング
+        void Ring(DrawingContext dc, double cx, double cy, double r, double thick, double frac, Brush color)
+        {
+            if (ringTrack == null) ringTrack = RoundPen(Track, thick);
+            dc.DrawGeometry(null, ringTrack, Arc(cx, cy, r, 135, 270));
+            frac = Math.Max(0, Math.Min(1, frac));
+            if (frac < 0.005) return;
+            Pen pen;
+            if (!ringPens.TryGetValue(color, out pen)) { pen = RoundPen(color, thick); ringPens[color] = pen; }
             dc.DrawGeometry(null, pen, Arc(cx, cy, r, 135, 270 * frac));
         }
 

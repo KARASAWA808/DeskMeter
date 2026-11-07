@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -151,6 +152,15 @@ namespace DeskMeter
             // 内容の高さが決まった / 変わったときに、右端・下端基準の位置を保つ
             SizeChanged += delegate { if (!dragging) RestorePosition(); };
 
+            // 再描画は計測が終わるたびに 1 回。時計の秒表示のためだけに、間隔が 1 秒より長いときは timer で秒の変わり目にも描く
+            sampler.Sampled += delegate
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
+                {
+                    InvalidateAll();
+                    if (!timer.IsEnabled) ScheduleNextTick();
+                }));
+            };
             timer.Tick += delegate
             {
                 InvalidateAll();
@@ -159,7 +169,12 @@ namespace DeskMeter
             ScheduleNextTick();
 
             displayChangeTimer.Interval = TimeSpan.FromMilliseconds(1200);
-            displayChangeTimer.Tick += delegate { displayChangeTimer.Stop(); RestorePosition(); };
+            displayChangeTimer.Tick += delegate
+            {
+                displayChangeTimer.Stop();
+                RestorePosition();
+                foreach (PanelWindow f in floats) f.RestorePosition();   // 切り離したパネルも画面内に戻す
+            };
 
             sampler.Start();
             timer.Start();
@@ -173,6 +188,9 @@ namespace DeskMeter
                 SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
                 SystemEvents.SessionSwitch += OnSessionSwitch;
                 StartShowListener();
+                StartSettingsWatcher();
+                if (Settings.BrokenBackupPath != null && tray != null)
+                    tray.ShowBalloonTip(8000, AppName, "settings.json が読めなかったので既定の設定で起動しました。元のファイルは " + Path.GetFileName(Settings.BrokenBackupPath) + " に退避してあります。", WF.ToolTipIcon.Warning);
             }
             else
             {
@@ -184,11 +202,24 @@ namespace DeskMeter
             }
         }
 
-        // 計測間隔が1秒以上なら秒の変わり目で、短ければその間隔で再描画する
+        // 時計 (秒表示) が出ていて計測間隔が 1 秒より長いときだけ、秒の変わり目にも再描画する。それ以外は計測のたびに描くだけ
         void ScheduleNextTick()
         {
-            int ms = Math.Min(1000, Math.Max(250, cfg.IntervalMs));
-            timer.Interval = TimeSpan.FromMilliseconds(ms >= 1000 ? 1010 - DateTime.Now.Millisecond : ms);
+            if (cfg.IntervalMs <= 1000 || !ClockShown() || sampler.Paused)
+            {
+                timer.Stop();
+                return;
+            }
+            timer.Interval = TimeSpan.FromMilliseconds(1010 - DateTime.Now.Millisecond);
+            timer.Start();
+        }
+
+        bool ClockShown()
+        {
+            if (cfg.Layout != null && !hiddenByFloat)
+                foreach (List<string> col in cfg.Layout) if (col.Contains("clock")) return true;
+            foreach (PanelWindow f in floats) if (f.Id == "clock") return true;
+            return false;
         }
 
         void OnDisplaySettingsChanged(object sender, EventArgs e)
@@ -225,12 +256,21 @@ namespace DeskMeter
 
                 int x = cfg.AnchorH == "left" ? wa.Left + cfg.MonX : wa.Right - cfg.MonX - w;
                 int y = cfg.AnchorV == "bottom" ? wa.Bottom - cfg.MonY - h : wa.Top + cfg.MonY;
-                // 作業領域からはみ出しすぎないように
-                x = Math.Max(wa.Left - w + 80, Math.Min(wa.Right - 80, x));
-                y = Math.Max(wa.Top, Math.Min(wa.Bottom - 60, y));
+                // 全体が作業領域に収まるように (別のモニターへ退避したときなど)。窓のほうが大きければ左上を合わせる
+                x = ClampToArea(x, w, wa.Left, wa.Right);
+                y = ClampToArea(y, h, wa.Top, wa.Bottom);
                 Native.SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+                // 配置編集で「ここから下は画面外」と示すための、窓の上端から作業領域の下端までの高さ (倍率を掛ける前の値)
+                view.ScreenLimitH = (wa.Bottom - y) / scale / Math.Max(0.5, cfg.Scale);
             }
             catch (Exception ex) { Log.Write("restore position", ex); }
+        }
+
+        // 位置 pos・長さ len の窓を [lo, hi) に収める。収まらない大きさなら lo に合わせる
+        public static int ClampToArea(int pos, int len, int lo, int hi)
+        {
+            if (len >= hi - lo) return lo;
+            return Math.Max(lo, Math.Min(hi - len, pos));
         }
 
         // いまの位置を「どのモニターの、どの端から何px」として保存する。端に近ければ吸着させる
@@ -615,6 +655,7 @@ namespace DeskMeter
                 foreach (WF.ToolStripMenuItem mi in miInterval.DropDownItems) mi.Checked = (int)mi.Tag == cfg.IntervalMs;
                 foreach (WF.ToolStripMenuItem mi in miHistory.DropDownItems) mi.Checked = (int)mi.Tag == cfg.HistorySeconds;
                 foreach (WF.ToolStripMenuItem mi in miHotkey.DropDownItems) mi.Checked = string.Equals((string)mi.Tag, cfg.Hotkey, StringComparison.OrdinalIgnoreCase);
+                miHotkey.Text = !string.IsNullOrEmpty(cfg.Hotkey) && !hotkeyRegistered ? "ホットキー (表示/非表示) - 登録できません" : "ホットキー (表示/非表示)";
                 miDesktop.Checked = cfg.Mode == "desktop";
                 miTopmost.Checked = cfg.Mode == "topmost";
                 miNormal.Checked = cfg.Mode == "normal";
@@ -685,6 +726,7 @@ namespace DeskMeter
             ScheduleNextTick();
             sampler.Poke();
             RestorePosition();
+            foreach (PanelWindow f in floats) f.RestorePosition();   // FloatPositions の手編集も反映する
             ApplyMode();
             ApplyClickThrough();
             ApplyHotkey();
@@ -701,7 +743,41 @@ namespace DeskMeter
             uint mods, vk;
             if (!ParseHotkey(cfg.Hotkey, out mods, out vk)) return;
             if (Native.RegisterHotKey(hwnd, HotkeyId, mods | Native.MOD_NOREPEAT, vk)) hotkeyRegistered = true;
-            else Log.Write("hotkey " + cfg.Hotkey, new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+            else
+            {
+                Log.Write("hotkey " + cfg.Hotkey, new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+                if (tray != null) tray.ShowBalloonTip(5000, AppName, "ホットキー " + cfg.Hotkey + " は他のアプリが使っているため登録できませんでした。", WF.ToolTipIcon.Warning);
+            }
+        }
+
+        // settings.json がメモ帳などで書き換えられたら、自動で読み直す (再読み込みを忘れて上書きしてしまわないように)
+        FileSystemWatcher settingsWatcher;
+        readonly DispatcherTimer settingsChangedTimer = new DispatcherTimer();
+
+        void StartSettingsWatcher()
+        {
+            try
+            {
+                settingsChangedTimer.Interval = TimeSpan.FromMilliseconds(700);
+                settingsChangedTimer.Tick += delegate
+                {
+                    settingsChangedTimer.Stop();
+                    if (!Settings.ExternallyModified()) return;   // 自分の Save によるもの
+                    ReloadSettings();
+                    if (tray != null) tray.ShowBalloonTip(3000, AppName, "settings.json の変更を反映しました。", WF.ToolTipIcon.Info);
+                };
+                settingsWatcher = new FileSystemWatcher(AppPaths.Dir, "settings.json");
+                settingsWatcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName;
+                FileSystemEventHandler onChange = delegate
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate { settingsChangedTimer.Stop(); settingsChangedTimer.Start(); }));
+                };
+                settingsWatcher.Changed += onChange;
+                settingsWatcher.Created += onChange;
+                settingsWatcher.Renamed += delegate { onChange(null, null); };
+                settingsWatcher.EnableRaisingEvents = true;
+            }
+            catch (Exception ex) { Log.Write("settings watcher", ex); }
         }
 
         // "Ctrl+Alt+D" のような表記を修飾キーと仮想キーコードに分ける
@@ -752,7 +828,7 @@ namespace DeskMeter
                     while (true)
                     {
                         int i = WaitHandle.WaitAny(hs);
-                        if (i == 0) Dispatcher.BeginInvoke(new Action(delegate { if (userHidden) ToggleVisible(); else { Show(); ApplyMode(); } }));
+                        if (i == 0) Dispatcher.BeginInvoke(new Action(delegate { if (userHidden) ToggleVisible(); else if (!hiddenByFloat) { Show(); ApplyMode(); } }));
                         else if (i == 1) Dispatcher.BeginInvoke(new Action(delegate { SetEditMode(!view.EditMode); }));
                         else if (i == 2) Dispatcher.BeginInvoke(new Action(ReloadSettings));
                         else break;
@@ -1002,13 +1078,15 @@ namespace DeskMeter
             if (showEvent != null) { showEvent.Close(); showEvent = null; }
             if (editEvent != null) { editEvent.Close(); editEvent = null; }
             if (reloadEvent != null) { reloadEvent.Close(); reloadEvent = null; }
+            if (settingsWatcher != null) { try { settingsWatcher.EnableRaisingEvents = false; settingsWatcher.Dispose(); } catch { } settingsWatcher = null; }
             if (tray != null)
             {
                 tray.Visible = false;
                 tray.Dispose();
             }
             sampler.Dispose();
-            if (snapshotPath == null) cfg.Save();
+            // 終了直前にファイルが外部で書き換えられていたら (読み直す前なら)、その編集を上書きしない
+            if (snapshotPath == null && !Settings.ExternallyModified()) cfg.Save();
         }
     }
 }

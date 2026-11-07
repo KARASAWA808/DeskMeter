@@ -109,8 +109,11 @@ namespace DeskMeter
                 Settings.FloatPos p = cfg.EnsureFloatPos(Id);
                 WF.Screen scr = MainWindow.FindScreen(p.Monitor);
                 System.Drawing.Rectangle wa = scr.WorkingArea;
-                int x = Math.Max(wa.Left - 100, Math.Min(wa.Right - 60, wa.Left + p.X));
-                int y = Math.Max(wa.Top, Math.Min(wa.Bottom - 40, wa.Top + p.Y));
+                Native.RECT r;
+                Native.GetWindowRect(Hwnd, out r);
+                int w = Math.Max(1, r.Right - r.Left), h = Math.Max(1, r.Bottom - r.Top);
+                int x = MainWindow.ClampToArea(wa.Left + p.X, w, wa.Left, wa.Right);
+                int y = MainWindow.ClampToArea(wa.Top + p.Y, h, wa.Top, wa.Bottom);
                 Native.SetWindowPos(Hwnd, IntPtr.Zero, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
             }
             catch (Exception ex) { Log.Write("panel restore " + Id, ex); }

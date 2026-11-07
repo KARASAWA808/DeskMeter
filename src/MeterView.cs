@@ -16,6 +16,9 @@ namespace DeskMeter
         readonly Settings cfg;
         double contentH = 900, contentW;
         double dip = 1.0;
+        // 表示しているモニターの作業領域の高さ (倍率を掛ける前)。配置編集で画面外になる列を示すのに使う。0 = 不明
+        public double ScreenLimitH;
+        double editHintH = 40;   // 配置編集中の案内ボックスの高さ (描いたときに測る)
 
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
         static readonly CultureInfo Ja = new CultureInfo("ja-JP");
@@ -27,9 +30,26 @@ namespace DeskMeter
         Brush White, Yellow, Orange, Cyan, Green, Lime, Red, Gray, Dim, Magenta, Violet, Blue, Track, GraphBg,
             TileGreen, TileBlue, TileTeal, TileSlate, TilePurple, TileRose, CalHead, TodayOrange, TileGradient,
             SunBrush, CloudLight, CloudDark, RainBrush, SnowBrush, MoonLit, MoonDark, Scanline;
-        Pen GraphBorder, GridPen, SepPen, PenYellow, PenGreen, SunPen, RainPen, FogPen;
+        Pen GraphBorder, GridPen, SepPen, PenYellow, PenGreen, PenCyan, SunPen, RainPen, FogPen;
         Brush[] Palette;
         Pen[] PalettePens;
+
+        // 毎フレーム同じ文字 (ラベル類) の整形結果を使い回す。スキンや DPI が変わったら捨てる
+        readonly Dictionary<string, FormattedText> textCache = new Dictionary<string, FormattedText>(512);
+        readonly Dictionary<Brush, int> brushIds = new Dictionary<Brush, int>();
+        readonly Dictionary<Pen, Brush> areaBrushes = new Dictionary<Pen, Brush>();   // グラフの面塗り用 (折れ線の色を薄くしたもの)
+        double cacheDip = -1;
+
+        void ClearCaches()
+        {
+            textCache.Clear();
+            brushIds.Clear();
+            areaBrushes.Clear();
+            ringPens.Clear();
+            ringTrack = null;
+            decorCache = null;
+            bgCache = null;
+        }
 
         public MeterView(MeterState state, Settings cfg)
         {
@@ -299,12 +319,36 @@ namespace DeskMeter
                 dc.DrawRoundedRectangle(sk.Accent1, null, gr, 4, 4);
                 dc.DrawText(ghost, new Point(gr.X + 7, gr.Y + 2));
             }
-            // 案内
+            // 画面 (作業領域) の下端。ここより下に伸びた列は画面外になるので赤い線と枠で知らせる
+            bool over = false;
+            if (ScreenLimitH > 0 && SinglePanel == null)
+            {
+                double limit = ScreenLimitH;
+                var limitPen = new Pen(sk.Danger, 2);
+                limitPen.DashStyle = DashStyles.Dash;
+                limitPen.Freeze();
+                if (limit < contentH)
+                {
+                    dc.DrawLine(limitPen, new Point(0, limit), new Point(contentW, limit));
+                    T(dc, "▲ ここから下は画面外", contentW - 6, limit - 16, 11, sk.Danger, 1, true);
+                    var overPen = new Pen(sk.Danger, 2);
+                    overPen.Freeze();
+                    foreach (PanelBox b in boxes)
+                        if (b.R.Bottom > limit)
+                        {
+                            over = true;
+                            dc.DrawRoundedRectangle(null, overPen, new Rect(b.R.X - 4, b.R.Y - 4, b.R.Width + 8, b.R.Height + 8), 4, 4);
+                        }
+                }
+            }
+            // 案内 (先頭のパネルに重ならないよう下端に出す)
             string hint = "配置編集中: ドラッグで移動 / 左右の外側へ落とすと新しい列 / 右クリック→「配置の編集」で終了";
+            if (over) hint += "  ※ 赤枠のパネルは画面に収まりません (CPU の 2 列表示や別の列へ)";
             if (dragging && dragId != null) hint += string.Format(CultureInfo.InvariantCulture, "  [列 {0} / 位置 {1}]", dropCol < 0 ? "新(左)" : dropCol >= cfg.Layout.Count ? "新(右)" : (dropCol + 1).ToString(CultureInfo.InvariantCulture), dropIndex + 1);
             FormattedText ht = Make(hint, 12, Brushes.White, TfB);
             ht.MaxTextWidth = Math.Max(60, contentW - 24);
-            var hr = new Rect((contentW - Math.Min(ht.Width, contentW - 24)) / 2 - 8, 4, Math.Min(ht.Width, contentW - 24) + 16, ht.Height + 8);
+            editHintH = Math.Ceiling(ht.Height + 16);   // 次のフレームで窓の高さに足される
+            var hr = new Rect((contentW - Math.Min(ht.Width, contentW - 24)) / 2 - 8, contentH - ht.Height - 12, Math.Min(ht.Width, contentW - 24) + 16, ht.Height + 8);
             var hb = new SolidColorBrush(Color.FromArgb(220, 30, 30, 36));
             hb.Freeze();
             dc.DrawRoundedRectangle(hb, null, hr, 5, 5);
@@ -329,7 +373,8 @@ namespace DeskMeter
             SunBrush = sk.Sun; CloudLight = sk.CloudLight; CloudDark = sk.CloudDark; RainBrush = sk.Rain; SnowBrush = sk.Snow;
             MoonLit = sk.MoonLit; MoonDark = sk.MoonDark;
             GraphBorder = sk.GraphBorder; GridPen = sk.GraphGrid; SepPen = Skin.P(sk.Separator, 1);
-            PenYellow = Skin.P(Yellow, 1.3); PenGreen = Skin.P(Green, 1.3);
+            PenYellow = Skin.P(Yellow, 1.3); PenGreen = Skin.P(Green, 1.3); PenCyan = Skin.P(Cyan, 1.3);
+            ClearCaches();
             SunPen = Skin.P(SunBrush, 2); RainPen = Skin.P(RainBrush, 2); FogPen = Skin.P(CloudDark, 2.5);
             Palette = sk.Palette;
             PalettePens = new Pen[Palette.Length];
@@ -357,7 +402,15 @@ namespace DeskMeter
 
         protected override void OnRender(DrawingContext dc)
         {
+            long pt0 = Profiler.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            RenderCore(dc);
+            if (Profiler.Enabled) Profiler.Render(System.Diagnostics.Stopwatch.GetTimestamp() - pt0);
+        }
+
+        void RenderCore(DrawingContext dc)
+        {
             dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            if (dip != cacheDip) { cacheDip = dip; ClearCaches(); }   // 文字の整形結果は DPI 込みなので作り直す
             // 立ち絵を横に並べる設定なら、その分だけ窓を広げる
             sideExtra = SinglePanel != null ? 0 : SideExtra();
             double wantW = WidthNow() + sideExtra;
@@ -410,7 +463,7 @@ namespace DeskMeter
             if (Scanline != null)
  dc.DrawRectangle(Scanline, null, new Rect(0, 0, contentW, contentH));
             if (sk.Border != null) dc.DrawRoundedRectangle(null, sk.Border, new Rect(0.5, 0.5, contentW - 1, contentH - 1), sk.CornerRadius, sk.CornerRadius);
-            h = Math.Ceiling(h + 12);
+            h = Math.Ceiling(h + 12 + (editMode ? editHintH : 0));   // 編集中は下端の案内の分だけ伸ばす
             if (Math.Abs(h - contentH) > 0.5)
             {
                 contentH = h;
@@ -425,17 +478,33 @@ namespace DeskMeter
             return new FormattedText(s, Ja, FlowDirection.LeftToRight, tf, size, b, dip);
         }
 
-        // align: 0 = 左, 1 = 右, 2 = 中央。戻り値は描画幅
-        double T(DrawingContext dc, string s, double x, double y, double size, Brush b, int align = 0, bool bold = false, double maxW = 0)
+        // 文字の整形 (FormattedText の生成) は描画の中でいちばん重いので、同じ文字・大きさ・色の組は使い回す
+        FormattedText Cached(string s, double size, Brush b, Typeface tf, double maxW)
         {
-            if (string.IsNullOrEmpty(s)) return 0;
-            FormattedText ft = Make(s, size, b, bold ? TfB : TfN);
+            int bid;
+            if (!brushIds.TryGetValue(b, out bid)) { bid = brushIds.Count; brushIds[b] = bid; }
+            string face = ReferenceEquals(tf, TfN) ? "N" : ReferenceEquals(tf, TfB) ? "B" : ReferenceEquals(tf, TfL) ? "L" : "I";
+            string key = string.Concat(s, "\u0001", size.ToString(Inv), face, bid.ToString(Inv), "\u0001", maxW.ToString(Inv));
+            FormattedText ft;
+            if (textCache.TryGetValue(key, out ft)) return ft;
+            // 数値のように毎回変わる文字で際限なく増えないように、ある程度たまったら全部捨てる
+            if (textCache.Count >= 4000) textCache.Clear();
+            ft = new FormattedText(s, Ja, FlowDirection.LeftToRight, tf, size, b, dip);
             if (maxW > 0)
             {
                 ft.MaxTextWidth = maxW;
                 ft.MaxLineCount = 1;
                 ft.Trimming = TextTrimming.CharacterEllipsis;
             }
+            textCache[key] = ft;
+            return ft;
+        }
+
+        // align: 0 = 左, 1 = 右, 2 = 中央。戻り値は描画幅
+        double T(DrawingContext dc, string s, double x, double y, double size, Brush b, int align = 0, bool bold = false, double maxW = 0)
+        {
+            if (string.IsNullOrEmpty(s)) return 0;
+            FormattedText ft = Cached(s, size, b, bold ? TfB : TfN, maxW);
             double w = ft.Width;
             double dx = align == 1 ? -w : align == 2 ? -w / 2 : 0;
             DrawTextWithShadow(dc, ft, new Point(x + dx, y), b);
@@ -478,7 +547,7 @@ namespace DeskMeter
         void Header(DrawingContext dc, double x, double y, string glyph, Brush tile, string title, string right)
         {
             dc.DrawRoundedRectangle(tile, null, new Rect(x, y, 36, 36), sk.TileRadius, sk.TileRadius);
-            FormattedText icon = Make(glyph, 20, White, TfIcon);
+            FormattedText icon = Cached(glyph, 20, White, TfIcon, 0);
             dc.DrawText(icon, new Point(x + 18 - icon.Width / 2, y + 18 - icon.Height / 2));
             T(dc, title, x + 46, y - 3, 15.5, White, 0, true);
             if (right != null) T(dc, right, x + ColW, y - 3, 15.5, White, 1, true);
@@ -497,6 +566,8 @@ namespace DeskMeter
             T(dc, c, x + 184, y, FS, brush, 2);
             return y + 17;
         }
+
+        readonly List<Point> graphPts = new List<Point>(512);
 
         // max <= 0 のときは履歴の最大値に合わせて自動スケール。戻り値は使った上限値
         double Graph(DrawingContext dc, Rect r, Hist[] series, Pen[] pens, double max)
@@ -520,45 +591,42 @@ namespace DeskMeter
                 double x0 = r.Right - (h.Count - 1) * step;
                 // 時間幅が長く 1px に何本も入るときは、その区間の最大値を 1 点にまとめる (ピークを潰さない)
                 int stride = Math.Max(1, (int)Math.Ceiling(h.Cap / (r.Width * 2)));
+                graphPts.Clear();
+                for (int i = 0; i < h.Count; i += stride)
+                {
+                    int end = Math.Min(h.Count, i + stride);
+                    float mv = 0;
+                    for (int j = i; j < end; j++) { float sv = h.At(j); if (sv > mv) mv = sv; }
+                    double v = Math.Max(0, Math.Min(1, mv / max));
+                    graphPts.Add(new Point(x0 + (end - 1) * step, r.Bottom - 1.5 - v * (r.Height - 3)));
+                }
                 var g = new StreamGeometry();
                 using (StreamGeometryContext ctx = g.Open())
                 {
-                    for (int i = 0; i < h.Count; i += stride)
-                    {
-                        int end = Math.Min(h.Count, i + stride);
-                        float mv = 0;
-                        for (int j = i; j < end; j++) { float sv = h.At(j); if (sv > mv) mv = sv; }
-                        double v = Math.Max(0, Math.Min(1, mv / max));
-                        var pt = new Point(x0 + (end - 1) * step, r.Bottom - 1.5 - v * (r.Height - 3));
-                        if (i == 0) ctx.BeginFigure(pt, false, false);
-                        else ctx.LineTo(pt, true, true);
-                    }
+                    ctx.BeginFigure(graphPts[0], false, false);
+                    for (int i = 1; i < graphPts.Count; i++) ctx.LineTo(graphPts[i], true, true);
                 }
                 g.Freeze();
                 Pen pen = pens[s % pens.Length];
                 if (sk.GraphArea)
                 {
-                    // 折れ線の下を薄く塗る
+                    // 折れ線の下を薄く塗る (同じ点列を使う)
                     var area = new StreamGeometry();
                     using (StreamGeometryContext actx = area.Open())
                     {
-                        bool first = true;
-                        for (int i = 0; i < h.Count; i += stride)
-                        {
-                            int end = Math.Min(h.Count, i + stride);
-                            float mv = 0;
-                            for (int j = i; j < end; j++) { float sv = h.At(j); if (sv > mv) mv = sv; }
-                            double v = Math.Max(0, Math.Min(1, mv / max));
-                            var pt = new Point(x0 + (end - 1) * step, r.Bottom - 1.5 - v * (r.Height - 3));
-                            if (first) { actx.BeginFigure(new Point(pt.X, r.Bottom), true, true); first = false; }
-                            actx.LineTo(pt, false, false);
-                        }
+                        actx.BeginFigure(new Point(graphPts[0].X, r.Bottom), true, true);
+                        for (int i = 0; i < graphPts.Count; i++) actx.LineTo(graphPts[i], false, false);
                         actx.LineTo(new Point(r.Right, r.Bottom), false, false);
                     }
                     area.Freeze();
-                    Brush fillArea = pen.Brush.Clone();
-                    fillArea.Opacity = 0.22;
-                    fillArea.Freeze();
+                    Brush fillArea;
+                    if (!areaBrushes.TryGetValue(pen, out fillArea))
+                    {
+                        fillArea = pen.Brush.Clone();
+                        fillArea.Opacity = 0.22;
+                        fillArea.Freeze();
+                        areaBrushes[pen] = fillArea;
+                    }
                     dc.DrawGeometry(fillArea, null, area);
                 }
                 dc.DrawGeometry(null, pen, g);
@@ -857,7 +925,9 @@ namespace DeskMeter
             y += 52;
             T(dc, now.ToString("yyyy年M月d日 (ddd)", Ja), x + ColW / 2, y, 13.5, Lime, 2);
             y += 20;
-            int week = Inv.Calendar.GetWeekOfYear(now, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+            // ISO 8601 の週番号。.NET の GetWeekOfYear は年末年始で 1 週ずれるので、その週の木曜日で数える
+            DateTime thu = now.AddDays(3 - ((int)now.DayOfWeek + 6) % 7).Date;
+            int week = Inv.Calendar.GetWeekOfYear(thu, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
             T(dc, string.Format(Inv, "Day: {0}    Week: {1}    Q{2}", now.DayOfYear, week, (now.Month - 1) / 3 + 1), x + ColW / 2, y, 12.5, Yellow, 2);
             y += 22;
             Sep(dc, x, y);

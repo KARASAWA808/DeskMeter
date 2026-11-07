@@ -246,6 +246,35 @@ namespace DeskMeter
         public static bool ScriptHosted { get { return AppDomain.CurrentDomain.GetData("APPBASE_OVERRIDE") is string; } }
     }
 
+    // 環境変数 DESKMETER_PROFILE=1 で起動すると、描画と計測にかかった時間を 30 秒ごとにログへ書く (負荷の調査用)
+    static class Profiler
+    {
+        public static readonly bool Enabled = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DESKMETER_PROFILE"));
+        static readonly object gate = new object();
+        static long renderTicks, sampleTicks, nextReport;
+        static int renders, samples;
+
+        public static void Render(long ticks) { if (Enabled) Add(ref renderTicks, ref renders, ticks); }
+        public static void Sample(long ticks) { if (Enabled) Add(ref sampleTicks, ref samples, ticks); }
+
+        static void Add(ref long sum, ref int n, long ticks)
+        {
+            lock (gate)
+            {
+                sum += ticks; n++;
+                long now = Environment.TickCount;
+                if (nextReport == 0) nextReport = now + 30000;
+                if (now < nextReport) return;
+                double rms = renderTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency, sms = sampleTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                Log.Write("profile", new Exception(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "30s: render n={0} avg={1:0.0}ms total={2:0}ms | sample n={3} avg={4:0.0}ms total={5:0}ms",
+                    renders, renders > 0 ? rms / renders : 0, rms, samples, samples > 0 ? sms / samples : 0, sms)));
+                renderTicks = sampleTicks = 0; renders = samples = 0;
+                nextReport = now + 30000;
+            }
+        }
+    }
+
     static class Log
     {
         static readonly object gate = new object();

@@ -126,6 +126,8 @@ namespace DeskMeter
         void UpdatePaused()
         {
             sampler.Paused = userHidden || sessionLocked;
+            ScheduleNextTick();
+            if (!sampler.Paused) sampler.Poke();
         }
 
         // 独立ウィンドウ上での右クリック: そのパネルを戻す項目つきで同じメニューを出す

@@ -72,13 +72,35 @@ namespace DeskMeter
             get { return Path.Combine(AppPaths.Dir, "settings.json"); }
         }
 
+        // 最後に読み書きしたときのファイルの更新時刻。外部 (メモ帳など) で編集されたかの判定に使う
+        static long fileStamp;
+        // 起動時に壊れたファイルを退避したなら、その退避先 (起動後にトレイで知らせる)
+        public static string BrokenBackupPath;
+
+        static void RememberStamp()
+        {
+            try { fileStamp = File.Exists(FilePath) ? File.GetLastWriteTimeUtc(FilePath).Ticks : 0; }
+            catch { fileStamp = 0; }
+        }
+
+        // 最後に読み書きしたあとに、ほかのプログラムがファイルを書き換えたか
+        public static bool ExternallyModified()
+        {
+            try
+            {
+                long now = File.Exists(FilePath) ? File.GetLastWriteTimeUtc(FilePath).Ticks : 0;
+                return now != fileStamp;
+            }
+            catch { return false; }
+        }
+
         // 起動時の読み込み。ファイルが壊れていたら settings.broken-<日時>.json に退避してから既定値で動く
         public static Settings Load()
         {
             bool broken;
             Settings s = TryLoad(out broken);
             if (s != null) return s;
-            if (broken) BackupBroken();
+            if (broken) BrokenBackupPath = BackupBroken();
             var fresh = new Settings();
             fresh.Normalize();
             return fresh;
@@ -90,8 +112,9 @@ namespace DeskMeter
             broken = false;
             try
             {
-                if (!File.Exists(FilePath)) return null;
+                if (!File.Exists(FilePath)) { RememberStamp(); return null; }
                 var s = new JavaScriptSerializer().Deserialize<Settings>(File.ReadAllText(FilePath, Encoding.UTF8));
+                RememberStamp();
                 if (s == null) { broken = true; return null; }
                 s.Normalize();
                 if (s.pendingSave) { s.pendingSave = false; s.Save(); }   // 移行で配置を変えたらすぐ保存
@@ -100,20 +123,22 @@ namespace DeskMeter
             catch (Exception ex)
             {
                 Log.Write("Settings.Load", ex);
+                RememberStamp();
                 broken = true;
                 return null;
             }
         }
 
-        static void BackupBroken()
+        static string BackupBroken()
         {
             try
             {
                 string dest = Path.Combine(AppPaths.Dir, "settings.broken-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
                 File.Copy(FilePath, dest, true);
                 Log.Write("Settings.Load", new InvalidOperationException("settings.json が読めないので退避しました: " + dest));
+                return dest;
             }
-            catch (Exception ex) { Log.Write("Settings.Backup", ex); }
+            catch (Exception ex) { Log.Write("Settings.Backup", ex); return null; }
         }
 
         public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather", "rings", "memory" };
@@ -209,6 +234,11 @@ namespace DeskMeter
             if (Mode != "topmost" && Mode != "normal") Mode = "desktop";
             if (IntervalMs < 250 || IntervalMs > 10000) IntervalMs = 1000;
             HistorySeconds = Math.Max(30, Math.Min(1800, HistorySeconds));
+            // 手編集で変な値が入っても画面外や NaN にならないように
+            MonX = Math.Max(0, Math.Min(20000, MonX));
+            MonY = Math.Max(0, Math.Min(20000, MonY));
+            if (double.IsNaN(Latitude) || Latitude < -90 || Latitude > 90) Latitude = 35.08;
+            if (double.IsNaN(Longitude) || Longitude < -180 || Longitude > 180) Longitude = 137.16;
             if (Hotkey == null) Hotkey = "";
             if (string.IsNullOrEmpty(Skin)) Skin = "Classic";
             if (AnchorH != "left") AnchorH = "right";
@@ -242,11 +272,17 @@ namespace DeskMeter
             return true;
         }
 
+        // 一時ファイルに書いてから差し替える (書き込み途中で落ちても settings.json が途中切れにならない)
         public void Save()
         {
             try
             {
-                File.WriteAllText(FilePath, Pretty(new JavaScriptSerializer().Serialize(this)), new UTF8Encoding(false));
+                string json = Pretty(new JavaScriptSerializer().Serialize(this));
+                string tmp = FilePath + ".tmp";
+                File.WriteAllText(tmp, json, new UTF8Encoding(false));
+                if (File.Exists(FilePath)) File.Replace(tmp, FilePath, null);
+                else File.Move(tmp, FilePath);
+                RememberStamp();
             }
             catch (Exception ex) { Log.Write("Settings.Save", ex); }
         }

@@ -18,23 +18,26 @@ namespace DeskMeter
             return b;
         }
 
-        // 背景 (単色 or グラデーション) に不透明度を掛けて描く
+        Brush bgCache;
+        double bgCacheOp = -1;
+
+        // 背景 (単色 or グラデーション) に不透明度を掛けて描く。ブラシは不透明度が変わるまで使い回す
         void DrawBackground(DrawingContext dc)
         {
             double op = Math.Max(1.0 / 255, Math.Min(1, cfg.BackgroundOpacity));
-            Brush bg;
-            if (sk.BackgroundBrush != null)
+            if (bgCache == null || op != bgCacheOp)
             {
-                bg = sk.BackgroundBrush.Clone();
-                bg.Opacity = op;
-                bg.Freeze();
+                if (sk.BackgroundBrush != null)
+                {
+                    Brush bg = sk.BackgroundBrush.Clone();
+                    bg.Opacity = op;
+                    bg.Freeze();
+                    bgCache = bg;
+                }
+                else bgCache = Alpha(sk.Background, (byte)Math.Round(op * 255));
+                bgCacheOp = op;
             }
-            else
-            {
-                Color bc = sk.Background;
-                bg = Alpha(bc, (byte)Math.Round(op * 255));
-            }
-            dc.DrawRoundedRectangle(bg, null, new Rect(0, 0, contentW, contentH), sk.CornerRadius, sk.CornerRadius);
+            dc.DrawRoundedRectangle(bgCache, null, new Rect(0, 0, contentW, contentH), sk.CornerRadius, sk.CornerRadius);
         }
 
         // 前のフレームのパネル矩形を使ってカードを敷く (配置はめったに変わらない)
@@ -50,10 +53,29 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- 背景の模様
 
+        Drawing decorCache;
+        double decorW, decorH;
+
+        // 模様は動かないので、窓の大きさが変わるまでは一度描いたものを貼るだけにする
         void DrawDecor(DrawingContext dc)
         {
             if (string.IsNullOrEmpty(sk.Decor)) return;
-            var rnd = new Random(1234);   // 毎フレーム同じ配置
+            if (decorCache == null || decorW != contentW || decorH != contentH)
+            {
+                var dv = new DrawingVisual();
+                using (DrawingContext d2 = dv.RenderOpen()) DrawDecorNow(d2);
+                Drawing d = dv.Drawing;
+                if (d != null && d.CanFreeze) d.Freeze();
+                decorCache = d;
+                decorW = contentW;
+                decorH = contentH;
+            }
+            if (decorCache != null) dc.DrawDrawing(decorCache);
+        }
+
+        void DrawDecorNow(DrawingContext dc)
+        {
+            var rnd = new Random(1234);   // いつも同じ配置
             Color c = sk.DecorColor;
             // 窓の外にはみ出さないように切り抜く
             var clip = new RectangleGeometry(new Rect(0, 0, contentW, contentH), sk.CornerRadius, sk.CornerRadius);
@@ -263,13 +285,15 @@ namespace DeskMeter
             DrawMascotAt(dc, x, y, size, sk.Mascot);
         }
 
+        static readonly Pen MascotOutline = Skin.P(Alpha(Color.FromRgb(60, 40, 50), 70), 1.4);
+        static readonly Pen MascotWhisker = Skin.P(Alpha(Color.FromRgb(60, 40, 50), 110), 1);
+
         void DrawMascotAt(DrawingContext dc, double x, double y, double s, string kind)
         {
             Brush body = sk.MascotBody ?? Brushes.White;
             Brush accent = sk.MascotAccent ?? sk.Accent1;
             Brush eye = sk.MascotEye ?? Skin.B("#3A2A33");
-            var outline = new Pen(Alpha(Color.FromRgb(60, 40, 50), 70), 1.4);
-            outline.Freeze();
+            Pen outline = MascotOutline;
             double cx = x + s / 2, cy = y + s * 0.6;
             double rx = s * 0.4, ry = s * 0.35;
 
@@ -331,8 +355,7 @@ namespace DeskMeter
             dc.DrawGeometry(null, mouth, g);
             if (kind == "cat")
             {
-                var whisker = new Pen(Alpha(Color.FromRgb(60, 40, 50), 110), 1);
-                whisker.Freeze();
+                Pen whisker = MascotWhisker;
                 for (int side = -1; side <= 1; side += 2)
                 {
                     dc.DrawLine(whisker, new Point(cx + side * rx * 0.8, cy + ry * 0.1), new Point(cx + side * rx * 1.25, cy - ry * 0.05));
