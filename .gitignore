@@ -4,3 +4,6 @@ deskmeter.log
 settings.json
 settings.broken*.json
 *.png.tmp
+# per-user files
+themes/
+dist/
