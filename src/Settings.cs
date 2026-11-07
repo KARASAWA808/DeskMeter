@@ -59,9 +59,9 @@ namespace DeskMeter
         public string PingHost = "1.1.1.1";
         // 天気 (Open-Meteo, APIキー不要)。WeatherEnabled = false で通信しない
         public bool WeatherEnabled = true;
-        public double Latitude = 35.08;
-        public double Longitude = 137.16;
-        public string LocationName = "愛知県 豊田市";
+        public double Latitude = 35.68;      // 既定は東京駅付近 (利用者の場所とは無関係な中立の地点)
+        public double Longitude = 139.77;
+        public string LocationName = "東京都 千代田区";
         // 天気パネルに明日から3日分の予報を出す
         public bool ShowForecast = true;
         // カレンダーに日本の祝日を表示する
@@ -237,8 +237,8 @@ namespace DeskMeter
             // 手編集で変な値が入っても画面外や NaN にならないように
             MonX = Math.Max(0, Math.Min(20000, MonX));
             MonY = Math.Max(0, Math.Min(20000, MonY));
-            if (double.IsNaN(Latitude) || Latitude < -90 || Latitude > 90) Latitude = 35.08;
-            if (double.IsNaN(Longitude) || Longitude < -180 || Longitude > 180) Longitude = 137.16;
+            if (double.IsNaN(Latitude) || Latitude < -90 || Latitude > 90) Latitude = 35.68;
+            if (double.IsNaN(Longitude) || Longitude < -180 || Longitude > 180) Longitude = 139.77;
             if (Hotkey == null) Hotkey = "";
             if (string.IsNullOrEmpty(Skin)) Skin = "Classic";
             if (AnchorH != "left") AnchorH = "right";

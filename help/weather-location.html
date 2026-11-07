@@ -31,18 +31,18 @@
 <h2>概要</h2>
 <p>天気の表示場所は、設定ファイル <code>settings.json</code> の緯度・経度を書き換えるだけで変わります。DeskMeter は Open-Meteo という無料の天気サービスに緯度・経度を送って天気を取得しているので、地名ではなく数値で場所を指定します。</p>
 <table>
-  <tr><th>設定項目</th><th>役割</th><th>いまの値</th></tr>
-  <tr><td><code>Latitude</code></td><td>緯度（北緯はプラス）</td><td>35.08</td></tr>
-  <tr><td><code>Longitude</code></td><td>経度（東経はプラス）</td><td>137.16</td></tr>
-  <tr><td><code>LocationName</code></td><td>天気パネルに表示する地名（表示用の文字で、取得には使わない）</td><td>愛知県 豊田市</td></tr>
+  <tr><th>設定項目</th><th>役割</th><th>既定値</th></tr>
+  <tr><td><code>Latitude</code></td><td>緯度（北緯はプラス）</td><td>35.68</td></tr>
+  <tr><td><code>Longitude</code></td><td>経度（東経はプラス）</td><td>139.77</td></tr>
+  <tr><td><code>LocationName</code></td><td>天気パネルに表示する地名（表示用の文字で、取得には使わない）</td><td>東京都 千代田区</td></tr>
 </table>
-<p>設定ファイルの場所: <code>C:\Users\karaw\DeskMeter\settings.json</code>（DeskMeter.exe と同じフォルダー）。所要時間は5分ほどです。</p>
+<p>設定ファイルの場所: <code>DeskMeter.exe</code> と同じフォルダーの <code>settings.json</code>。所要時間は5分ほどです。</p>
 
 <h2>手順1: 表示したい場所の緯度・経度を調べる</h2>
 <p>小数点2桁まであれば十分です（0.01度は約1km。天気は数km単位のメッシュで計算されます）。</p>
 <ol>
   <li>Google マップで表示したい場所を開き、地図上を右クリックします。</li>
-  <li>メニューの一番上に「35.08219, 137.15622」のような数値が出ます。クリックするとコピーされます。</li>
+  <li>メニューの一番上に「35.68124, 139.76712」のような数値（これは東京駅の例）が出ます。クリックするとコピーされます。</li>
   <li>前が緯度 (<code>Latitude</code>)、後ろが経度 (<code>Longitude</code>) です。</li>
 </ol>
 <p>Google マップを使わない場合は、ブラウザーで次のURLの「名古屋」を地名に変えて開くと、<code>latitude</code> と <code>longitude</code> が返ってきます:<br>
@@ -67,15 +67,15 @@
 <p>書き換えるのは3行だけです。それ以外の行は触らないでください。</p>
 <ol>
   <li>ウィジェットを右クリックし、「設定ファイルを開く (settings.json)」を選びます。メモ帳で開きます。<br>
-      <span class="note">DeskMeter が起動していないときは、エクスプローラーで <code>C:\Users\karaw\DeskMeter\settings.json</code> をメモ帳で開きます。</span></li>
+      <span class="note">DeskMeter が起動していないときは、エクスプローラーで DeskMeter.exe と同じフォルダーの <code>settings.json</code> をメモ帳で開きます。</span></li>
   <li><code>"Latitude"</code>、<code>"Longitude"</code>、<code>"LocationName"</code> の3行を探し、値を書き換えます。</li>
   <li>上書き保存します（Ctrl+S）。</li>
 </ol>
-<p>書き換えの例（豊田市 → 名古屋市）:</p>
+<p>書き換えの例（東京都 千代田区 → 名古屋市）:</p>
 <pre><code>変更前
-  "Latitude": 35.08,
-  "Longitude": 137.16,
-  "LocationName": "愛知県 豊田市",
+  "Latitude": 35.68,
+  "Longitude": 139.77,
+  "LocationName": "東京都 千代田区",
 
 変更後
   "Latitude": 35.18,
@@ -110,7 +110,7 @@
   <tr><th>症状</th><th>原因</th><th>対処</th></tr>
   <tr><td>「取得できません: ...」と赤く出る</td><td>緯度が -90〜90、経度が -180〜180 の範囲外。またはインターネットにつながっていない</td><td>値を見直す。緯度と経度を逆に書いていないか確認する（日本は緯度が20〜46、経度が122〜154）。通信が復旧すれば最大でも2分後に自動で再試行する</td></tr>
   <tr><td>値を変えたのに前の場所のまま</td><td>保存していない、または「設定ファイルを再読み込み」をしていない</td><td>メモ帳で上書き保存してから、再読み込みをする</td></tr>
-  <tr><td>設定が全部初期値に戻った（場所が豊田市に戻る、位置が右上に戻る）</td><td>JSON の書き間違い（カンマの消し忘れ、引用符の欠け、全角数字）。読めないときは初期値で動く</td><td><code>C:\Users\karaw\DeskMeter\deskmeter.log</code> の末尾に理由が記録される。ファイルを開いて直し、もう一度再読み込みする</td></tr>
+  <tr><td>設定が全部初期値に戻った（場所が東京に戻る、位置が右上に戻る）</td><td>JSON の書き間違い（カンマの消し忘れ、引用符の欠け、全角数字）。読めないときは初期値で動く</td><td>DeskMeter.exe と同じフォルダーの <code>deskmeter.log</code> の末尾に理由が記録される。ファイルを開いて直し、もう一度再読み込みする</td></tr>
   <tr><td>天気は変わったが地名が前のまま</td><td><code>LocationName</code> を書き換えていない</td><td>地名は自動では決まらないので、手で書き換える</td></tr>
   <tr><td>天気パネル自体が無い</td><td>表示項目から外れているか、<code>WeatherEnabled</code> が false</td><td>右クリック →「表示する項目」→「天気」をオンにする。設定ファイルの <code>WeatherEnabled</code> を true にする</td></tr>
 </table>

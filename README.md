@@ -31,6 +31,16 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 | --- | --- | --- |
 | ![](previews/KawaiiPink.png) | ![](previews/Synthwave.png) | ![](previews/Frost.png) |
 
+| 透明モード + リングゲージ | 配置プリセット「ダッシュボード」 | マスコット画像（右に並べる） |
+| --- | --- | --- |
+| ![](previews/transparent-rings.png) | ![](previews/preset-dashboard.png) | ![](previews/mascot-image-right.png) |
+
+| 配置の編集 | 切り離した時計と天気 |
+| --- | --- |
+| ![](previews/layout-edit.png) | ![](previews/floating-clock.png) ![](previews/floating-weather.png) |
+
+プレビューの撮り方: `DeskMeter.exe --snapshot out.png --delay 6`（`--edit` を付けると配置編集中の見た目）。設定は exe と同じフォルダーの `settings.json` を使います。
+
 ## 使い方
 
 1. [Releases](../../releases) から zip をダウンロードして展開し、`DeskMeter.exe` を実行します。
@@ -49,8 +59,10 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 
 ## 外部への通信
 
-- 天気: Open-Meteo（`api.open-meteo.com`）に設定した緯度・経度を送ります。`settings.json` の `WeatherEnabled` を `false` にすると通信しません。
+- 天気: Open-Meteo（`api.open-meteo.com`）に設定した緯度・経度を送ります。初期値は東京駅付近です。`settings.json` の `WeatherEnabled` を `false` にすると通信しません。
+- 場所の検索: メニューの「天気の場所を設定」で地名を検索したときだけ、入力した地名を Open-Meteo のジオコーディング（`geocoding-api.open-meteo.com`）に送ります。
 - Ping: `settings.json` の `PingHost`（既定 `1.1.1.1`）へ 5 秒おき。空文字で無効。
+- 天気パネルをダブルクリックすると、設定した緯度・経度を付けた windy.com を既定のブラウザーで開きます（アプリ自身は通信しません）。
 - それ以外の通信はありません。
 
 ## ビルド方法（SDK 不要）
