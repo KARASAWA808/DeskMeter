@@ -125,7 +125,7 @@ namespace DeskMeter
         // 隠している間とセッションロック中は計測をスキップする
         void UpdatePaused()
         {
-            sampler.Paused = userHidden || sessionLocked;
+            sampler.Paused = userHidden || sessionLocked || displayOff || fullscreenApp;
             ScheduleNextTick();
             if (!sampler.Paused) sampler.Poke();
         }

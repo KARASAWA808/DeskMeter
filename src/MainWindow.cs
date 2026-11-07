@@ -99,6 +99,9 @@ namespace DeskMeter
         bool showDesktop;
         bool dragging;
         bool sessionLocked;
+        bool displayOff, fullscreenApp;   // 画面が消えている / 前面がフルスクリーンのアプリ (どちらも計測を止める)
+        IntPtr powerNotify;
+        readonly DispatcherTimer fullscreenTimer = new DispatcherTimer();
         Native.WinEventProc winEventProc;   // GC されないよう保持
         IntPtr winEventHook;
         bool hotkeyRegistered;
@@ -349,6 +352,21 @@ namespace DeskMeter
             Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, new IntPtr(ex | Native.WS_EX_TOOLWINDOW));   // Alt+Tab に出さない
             HwndSource.FromHwnd(hwnd).AddHook(WndProc);
 
+            if (snapshotPath == null)
+            {
+                // 画面が消えている間は計測しない (電源設定の通知を受け取る)
+                try { Guid g = Native.GUID_CONSOLE_DISPLAY_STATE; powerNotify = Native.RegisterPowerSettingNotification(hwnd, ref g, 0); }
+                catch (Exception pex) { Log.Write("power notify", pex); }
+                // 前面がフルスクリーンのアプリの間も止める (ゲーム中に nvidia-smi で GPU を邪魔しない)。3 秒ごとに見る。最前面モードでは見えているので止めない
+                fullscreenTimer.Interval = TimeSpan.FromSeconds(3);
+                fullscreenTimer.Tick += delegate
+                {
+                    bool fs = cfg.Mode != "topmost" && Native.FullscreenAppActive();
+                    if (fs != fullscreenApp) { fullscreenApp = fs; UpdatePaused(); }
+                };
+                fullscreenTimer.Start();
+            }
+
             winEventProc = OnForegroundChanged;
             winEventHook = Native.SetWinEventHook(Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, winEventProc, 0, 0, 0);
 
@@ -365,6 +383,15 @@ namespace DeskMeter
                 ToggleVisible();
                 handled = true;
                 return IntPtr.Zero;
+            }
+            if (msg == Native.WM_POWERBROADCAST && wParam.ToInt32() == Native.PBT_POWERSETTINGCHANGE && lParam != IntPtr.Zero)
+            {
+                var ps = (Native.POWERBROADCAST_SETTING)Marshal.PtrToStructure(lParam, typeof(Native.POWERBROADCAST_SETTING));
+                if (ps.PowerSetting == Native.GUID_CONSOLE_DISPLAY_STATE && ps.DataLength >= 1)
+                {
+                    bool off = ps.Data == 0;
+                    if (off != displayOff) { displayOff = off; UpdatePaused(); }
+                }
             }
             // 「デスクトップに固定」中は常に Z オーダーの最背面に留める
             if (msg == Native.WM_WINDOWPOSCHANGING && cfg.Mode == "desktop" && !showDesktop)
@@ -1189,6 +1216,8 @@ namespace DeskMeter
             foreach (PanelWindow f in floats) { try { f.Close(); } catch { } }
             floats.Clear();
             displayChangeTimer.Stop();
+            fullscreenTimer.Stop();
+            if (powerNotify != IntPtr.Zero) { Native.UnregisterPowerSettingNotification(powerNotify); powerNotify = IntPtr.Zero; }
             if (snapshotPath == null)
             {
                 SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;

@@ -16,6 +16,9 @@ namespace DeskMeter
         public const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10;
         public const int WM_WINDOWPOSCHANGING = 0x0046;
         public const int WM_HOTKEY = 0x0312;
+        public const int WM_POWERBROADCAST = 0x0218;
+        public const int PBT_POWERSETTINGCHANGE = 0x8013;
+        public static readonly Guid GUID_CONSOLE_DISPLAY_STATE = new Guid("6FE69556-704A-47A0-8F24-C28D936FDA47");
         public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_WIN = 0x8, MOD_NOREPEAT = 0x4000;
         public const uint EVENT_SYSTEM_FOREGROUND = 3;
         public const uint GW_HWNDNEXT = 2;
@@ -27,6 +30,29 @@ namespace DeskMeter
             public IntPtr hwndInsertAfter;
             public int x, y, cx, cy;
             public uint flags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POWERBROADCAST_SETTING
+        {
+            public Guid PowerSetting;
+            public uint DataLength;
+            public byte Data;   // GUID_CONSOLE_DISPLAY_STATE: 0 = オフ, 1 = オン, 2 = 減光
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr RegisterPowerSettingNotification(IntPtr recipient, ref Guid setting, uint flags);
+        [DllImport("user32.dll")]
+        public static extern bool UnregisterPowerSettingNotification(IntPtr handle);
+
+        [DllImport("shell32.dll")]
+        static extern int SHQueryUserNotificationState(out int state);
+
+        // 前面がフルスクリーンのアプリ (ゲーム、全画面の動画、プレゼン) か。QUNS_BUSY / RUNNING_D3D_FULL_SCREEN / PRESENTATION_MODE
+        public static bool FullscreenAppActive()
+        {
+            try { int st; return SHQueryUserNotificationState(out st) == 0 && (st == 2 || st == 3 || st == 4); }
+            catch { return false; }
         }
 
         [StructLayout(LayoutKind.Sequential)]
