@@ -7,7 +7,7 @@ using System.Web.Script.Serialization;
 
 namespace DeskMeter
 {
-    public class Settings
+    public partial class Settings
     {
         // ウィンドウ位置: どのモニターの、どの端から何ピクセルか (モニター構成が変わっても追従できる)
         public string Monitor;            // 例 "\\.\DISPLAY1"。無い/見つからないときはメインモニター
@@ -32,6 +32,9 @@ namespace DeskMeter
         public string MascotImage = "";                // 指定するとスキンの手描きマスコットの代わりに描く
         public string MascotPlacement = "free";        // free (空きスペース) / right (右に並べる) / left
         public int MascotSize = 220;                   // 画像の最大の高さ (px)
+        // 切り離して独立ウィンドウにしたパネルと、その位置 (モニターの作業領域の左上からのピクセル)
+        public List<string> Floating = new List<string>();
+        public List<FloatPos> FloatPositions = new List<FloatPos>();
         // スキン名: Classic / Cyberpunk / Retro / Light、または skins\*.json のファイル名 (拡張子なし)
         public string Skin = "Classic";
         // 表示倍率 (1.0 = 100%)
@@ -152,6 +155,7 @@ namespace DeskMeter
 
         public bool HasPanel(string id)
         {
+            if (Floating != null && Floating.Contains(id)) return true;
             foreach (List<string> col in Layout) if (col.Contains(id)) return true;
             return false;
         }
@@ -162,6 +166,7 @@ namespace DeskMeter
             if (HasPanel(id))
             {
                 foreach (List<string> col in Layout) col.Remove(id);
+                Floating.Remove(id);
                 CleanLayout();
                 return;
             }
@@ -210,6 +215,7 @@ namespace DeskMeter
             BackgroundImageOpacity = Math.Max(0, Math.Min(1, BackgroundImageOpacity));
             if (BackgroundImage == null) BackgroundImage = "";
             if (MascotImage == null) MascotImage = "";
+            NormalizeFloating();
             if (PingHost == null) PingHost = "";
             if (LocationName == null) LocationName = "";
         }

@@ -1,0 +1,293 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using WF = System.Windows.Forms;
+
+namespace DeskMeter
+{
+    // パネルの切り離し (独立ウィンドウ)、配置プリセット、テーマのメニュー
+    sealed partial class MainWindow
+    {
+        readonly List<PanelWindow> floats = new List<PanelWindow>();
+        bool userHidden;         // 「ウィジェットを隠す」で隠している
+        bool hiddenByFloat;      // 列にパネルが無くなったので本体だけ隠している
+        string menuPanelId;      // 独立ウィンドウ上で右クリックしたパネル
+        WF.ToolStripMenuItem miDetach, miAttachThis, miPresets, miThemes;
+
+        public bool ShowDesktop { get { return showDesktop; } }
+
+        public void OpenPanelTarget(string id) { OpenPanelApp(id, null); }
+
+        IEnumerable<IntPtr> AllHwnds()
+        {
+            if (hwnd != IntPtr.Zero) yield return hwnd;
+            foreach (PanelWindow f in floats) if (f.Hwnd != IntPtr.Zero) yield return f.Hwnd;
+        }
+
+        bool IsOurWindow(IntPtr h)
+        {
+            foreach (IntPtr wh in AllHwnds()) if (wh == h) return true;
+            return false;
+        }
+
+        // ---------------------------------------------------------------- まとめて適用
+
+        void InvalidateAll()
+        {
+            view.InvalidateVisual();
+            foreach (PanelWindow f in floats) f.View.InvalidateVisual();
+        }
+
+        void RelayoutAll()
+        {
+            SyncFloating();
+            view.Relayout();
+            foreach (PanelWindow f in floats) f.View.Relayout();
+        }
+
+        void ApplySkinAll()
+        {
+            view.ApplySkin();
+            foreach (PanelWindow f in floats) f.View.ApplySkin();
+        }
+
+        void ApplyScaleAll()
+        {
+            view.LayoutTransform = new ScaleTransform(cfg.Scale, cfg.Scale);
+            foreach (PanelWindow f in floats) f.ApplyScale();
+        }
+
+        // 設定 (cfg.Floating) と実際のウィンドウを合わせる
+        void SyncFloating()
+        {
+            for (int i = floats.Count - 1; i >= 0; i--)
+            {
+                if (!cfg.Floating.Contains(floats[i].Id))
+                {
+                    floats[i].Close();
+                    floats.RemoveAt(i);
+                }
+            }
+            foreach (string id in cfg.Floating)
+            {
+                bool exists = false;
+                foreach (PanelWindow f in floats) if (f.Id == id) { exists = true; break; }
+                if (exists) continue;
+                var w = new PanelWindow(this, cfg, sampler.S, id);
+                floats.Add(w);
+                if (!userHidden) w.Show();
+            }
+            UpdateMainVisibility();
+        }
+
+        // 列が空で切り離しだけになったら本体のウィンドウは隠す
+        void UpdateMainVisibility()
+        {
+            if (userHidden) return;
+            bool shouldHide = cfg.Layout.Count == 0 && cfg.Floating.Count > 0;
+            if (shouldHide && !hiddenByFloat)
+            {
+                hiddenByFloat = true;
+                Hide();
+            }
+            else if (!shouldHide && hiddenByFloat)
+            {
+                hiddenByFloat = false;
+                Show();
+                ApplyMode();
+            }
+        }
+
+        void ToggleVisible()
+        {
+            userHidden = !userHidden;
+            if (userHidden)
+            {
+                if (IsVisible) Hide();
+                foreach (PanelWindow f in floats) f.Hide();
+                timer.Stop();
+            }
+            else
+            {
+                if (!hiddenByFloat) { Show(); ApplyMode(); }
+                foreach (PanelWindow f in floats) { f.Show(); f.ApplyMode(); }
+                ScheduleNextTick();
+                timer.Start();
+                sampler.Poke();
+            }
+            UpdatePaused();
+        }
+
+        // 隠している間とセッションロック中は計測をスキップする
+        void UpdatePaused()
+        {
+            sampler.Paused = userHidden || sessionLocked;
+        }
+
+        // 独立ウィンドウ上での右クリック: そのパネルを戻す項目つきで同じメニューを出す
+        public void ShowMenuFor(string id)
+        {
+            menuPanelId = id;
+            ShowMenu();
+        }
+
+        // ---------------------------------------------------------------- メニュー
+
+        void BuildLayoutMenus()
+        {
+            miAttachThis = Item("このパネルを本体のウィンドウに戻す", delegate
+            {
+                if (menuPanelId == null) return;
+                cfg.Attach(menuPanelId);
+                RelayoutAll();
+                cfg.Save();
+            });
+            menu.Items.Insert(0, miAttachThis);
+            menu.Closed += delegate { menuPanelId = null; };
+
+            miDetach = new WF.ToolStripMenuItem("パネルを切り離す (独立ウィンドウ)");
+            foreach (string id in Settings.PanelIds)
+            {
+                string pid = id;
+                var mi = Item(Settings.PanelName(pid), delegate
+                {
+                    if (cfg.Floating.Contains(pid)) cfg.Attach(pid); else cfg.Detach(pid);
+                    RelayoutAll();
+                    cfg.Save();
+                });
+                mi.Tag = pid;
+                miDetach.DropDownItems.Add(mi);
+            }
+            miDetach.DropDownItems.Add(new WF.ToolStripSeparator());
+            miDetach.DropDownItems.Add(Item("すべて本体に戻す", delegate
+            {
+                foreach (string id in new List<string>(cfg.Floating)) cfg.Attach(id);
+                RelayoutAll();
+                cfg.Save();
+            }));
+            menu.Items.Add(miDetach);
+
+            miPresets = new WF.ToolStripMenuItem("配置プリセット");
+            foreach (string name in Settings.PresetNames)
+            {
+                string n = name;
+                miPresets.DropDownItems.Add(Item(Settings.PresetDisplayName(n), delegate
+                {
+                    cfg.ApplyPreset(n);
+                    RelayoutAll();
+                    cfg.Save();
+                }));
+            }
+            menu.Items.Add(miPresets);
+
+            miThemes = new WF.ToolStripMenuItem("テーマ (見た目一式の保存)");
+            menu.Items.Add(miThemes);
+        }
+
+        void UpdateLayoutMenus()
+        {
+            miAttachThis.Visible = menuPanelId != null;
+            miAttachThis.Text = menuPanelId == null ? "" : "「" + Settings.PanelName(menuPanelId) + "」を本体のウィンドウに戻す";
+            foreach (WF.ToolStripItem it in miDetach.DropDownItems)
+            {
+                var mi = it as WF.ToolStripMenuItem;
+                if (mi == null || !(mi.Tag is string)) continue;
+                string id = (string)mi.Tag;
+                mi.Checked = cfg.Floating.Contains(id);
+                mi.Enabled = cfg.HasPanel(id);   // 非表示のパネルは切り離せない
+            }
+            BuildThemeMenu();
+        }
+
+        void BuildThemeMenu()
+        {
+            miThemes.DropDownItems.Clear();
+            miThemes.DropDownItems.Add(Item("いまの見た目をテーマとして保存...", SaveThemeInteractive));
+            miThemes.DropDownItems.Add(Item("テーマのフォルダーを開く", delegate
+            {
+                try { Directory.CreateDirectory(Settings.ThemeDir); Process.Start(Settings.ThemeDir); }
+                catch (Exception ex) { Log.Write("open themes", ex); }
+            }));
+            string[] names = Settings.ThemeNames();
+            if (names.Length == 0) return;
+            miThemes.DropDownItems.Add(new WF.ToolStripSeparator());
+            foreach (string name in names)
+            {
+                string n = name;
+                miThemes.DropDownItems.Add(Item(n, delegate { ApplyThemeByName(n); }));
+            }
+        }
+
+        void SaveThemeInteractive()
+        {
+            try
+            {
+                string name = Microsoft.VisualBasic.Interaction.InputBox("テーマの名前 (ファイル名になります)", "テーマを保存", "my-theme");
+                if (string.IsNullOrWhiteSpace(name)) return;
+                name = name.Trim();
+                if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                {
+                    if (tray != null) tray.ShowBalloonTip(4000, AppName, "ファイル名に使えない文字が含まれています。", WF.ToolTipIcon.Warning);
+                    return;
+                }
+                if (cfg.SaveTheme(name) && tray != null) tray.ShowBalloonTip(3000, AppName, "テーマ「" + name + "」を保存しました。", WF.ToolTipIcon.Info);
+            }
+            catch (Exception ex) { Log.Write("save theme", ex); }
+        }
+
+        void ApplyThemeByName(string name)
+        {
+            Settings.ThemeFile t = Settings.LoadTheme(name);
+            if (t == null)
+            {
+                if (tray != null) tray.ShowBalloonTip(4000, AppName, "テーマ「" + name + "」を読み込めませんでした。deskmeter.log を確認してください。", WF.ToolTipIcon.Warning);
+                return;
+            }
+            cfg.ApplyTheme(t);
+            ApplyScaleAll();
+            ApplySkinAll();
+            RelayoutAll();
+            foreach (PanelWindow f in floats) f.RestorePosition();
+            ScheduleNextTick();
+            sampler.Poke();
+            ApplyMode();
+            ApplyClickThrough();
+            cfg.Save();
+        }
+
+        // ---------------------------------------------------------------- スナップショット (切り離しパネル)
+
+        void SaveFloatSnapshots()
+        {
+            foreach (PanelWindow f in floats)
+            {
+                try
+                {
+                    string path = Path.Combine(Path.GetDirectoryName(snapshotPath), Path.GetFileNameWithoutExtension(snapshotPath) + "-" + f.Id + ".png");
+                    MeterView v = f.View;
+                    double s = cfg.Scale;
+                    int w = (int)Math.Ceiling(v.ActualWidth * s), h = (int)Math.Ceiling(v.ActualHeight * s);
+                    if (w <= 0 || h <= 0) continue;
+                    var dv = new DrawingVisual();
+                    using (DrawingContext dc = dv.RenderOpen())
+                    {
+                        dc.DrawRectangle(Brushes.Black, null, new Rect(0, 0, w, h));
+                        dc.PushTransform(new ScaleTransform(s, s));
+                        dc.DrawRectangle(new VisualBrush(v), null, new Rect(0, 0, v.ActualWidth, v.ActualHeight));
+                        dc.Pop();
+                    }
+                    var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(dv);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(rtb));
+                    using (FileStream fs = File.Create(path)) enc.Save(fs);
+                }
+                catch (Exception ex) { Log.Write("snapshot " + f.Id, ex); }
+            }
+        }
+    }
+}

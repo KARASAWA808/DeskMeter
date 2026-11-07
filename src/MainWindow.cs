@@ -67,7 +67,7 @@ namespace DeskMeter
         }
     }
 
-    sealed class MainWindow : Window
+    sealed partial class MainWindow : Window
     {
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string AppName = "DeskMeter";
@@ -119,7 +119,7 @@ namespace DeskMeter
 
             sampler = new Sampler(cfg);
             view = new MeterView(sampler.S, cfg);
-            view.LayoutTransform = new ScaleTransform(cfg.Scale, cfg.Scale);
+            ApplyScaleAll();
             Content = view;
             view.LayoutChanged += delegate { cfg.Save(); };
             view.PanelActivated += OpenPanelApp;
@@ -140,7 +140,7 @@ namespace DeskMeter
 
             timer.Tick += delegate
             {
-                view.InvalidateVisual();
+                InvalidateAll();
                 ScheduleNextTick();
             };
             ScheduleNextTick();
@@ -150,6 +150,7 @@ namespace DeskMeter
 
             sampler.Start();
             timer.Start();
+            SyncFloating();
 
             if (snapshotPath == null)
             {
@@ -186,7 +187,7 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- window placement (per monitor)
 
-        static WF.Screen FindScreen(string device)
+        internal static WF.Screen FindScreen(string device)
         {
             WF.Screen[] all = WF.Screen.AllScreens;
             if (device != null)
@@ -320,21 +321,24 @@ namespace DeskMeter
         {
             try
             {
-                if (cfg.Mode != "desktop" || hwnd == IntPtr.Zero || fg == hwnd) return;
+                if (cfg.Mode != "desktop" || hwnd == IntPtr.Zero || IsOurWindow(fg)) return;
                 string cls = Native.ClassOf(fg);
                 if (!showDesktop)
                 {
                     if (cls == "WorkerW" && IsBelow(fg))
                     {
                         showDesktop = true;
-                        Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                        foreach (IntPtr wh in AllHwnds()) Native.SetWindowPos(wh, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
                     }
                 }
                 else if (cls != "WorkerW" && cls != "Progman" && cls != "Shell_TrayWnd" && !cls.StartsWith("WindowsForms", StringComparison.Ordinal))
                 {
                     showDesktop = false;
-                    Native.SetWindowPos(hwnd, Native.HWND_NOTOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
-                    Native.SetWindowPos(hwnd, Native.HWND_BOTTOM, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                    foreach (IntPtr wh in AllHwnds())
+                    {
+                        Native.SetWindowPos(wh, Native.HWND_NOTOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                        Native.SetWindowPos(wh, Native.HWND_BOTTOM, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                    }
                 }
             }
             catch (Exception ex) { Log.Write("foreground", ex); }
@@ -354,6 +358,7 @@ namespace DeskMeter
 
         void ApplyMode()
         {
+            foreach (PanelWindow f in floats) f.ApplyMode();
             showDesktop = false;
             Topmost = cfg.Mode == "topmost";
             if (hwnd == IntPtr.Zero) return;
@@ -369,6 +374,7 @@ namespace DeskMeter
         // クリック透過は配置編集中には一時的に外す (そうしないとパネルをつかめない)
         void ApplyClickThrough()
         {
+            foreach (PanelWindow f in floats) f.ApplyClickThrough();
             if (hwnd == IntPtr.Zero) return;
             long ex = Native.GetWindowLongPtr(hwnd, Native.GWL_EXSTYLE).ToInt64();
             bool through = cfg.ClickThrough && snapshotPath == null && !view.EditMode;
@@ -407,7 +413,7 @@ namespace DeskMeter
         WF.ToolStripMenuItem SkinItem(string name)
         {
             string n = name;
-            var mi = Item(Skin.DisplayName(n), delegate { cfg.Skin = n; view.ApplySkin(); cfg.Save(); });
+            var mi = Item(Skin.DisplayName(n), delegate { cfg.Skin = n; ApplySkinAll(); cfg.Save(); });
             mi.Tag = n;
             return mi;
         }
@@ -436,7 +442,7 @@ namespace DeskMeter
             foreach (int p in new[] { 70, 80, 90, 100, 110, 125, 150 })
             {
                 int pct = p;
-                var mi = Item(pct + "%", delegate { cfg.Scale = pct / 100.0; view.LayoutTransform = new ScaleTransform(cfg.Scale, cfg.Scale); cfg.Save(); });
+                var mi = Item(pct + "%", delegate { cfg.Scale = pct / 100.0; ApplyScaleAll(); cfg.Save(); });
                 mi.Tag = pct;
                 miScale.DropDownItems.Add(mi);
             }
@@ -446,7 +452,7 @@ namespace DeskMeter
             foreach (int p in new[] { 100, 90, 80, 70, 60, 50, 30, 0 })
             {
                 int pct = p;
-                var mi = Item(pct + "%", delegate { cfg.BackgroundOpacity = pct / 100.0; view.InvalidateVisual(); cfg.Save(); });
+                var mi = Item(pct + "%", delegate { cfg.BackgroundOpacity = pct / 100.0; InvalidateAll(); cfg.Save(); });
                 mi.Tag = pct;
                 miOpacity.DropDownItems.Add(mi);
             }
@@ -456,7 +462,7 @@ namespace DeskMeter
             foreach (string[] opt in new[] { new[] { "auto", "自動 (背景が薄いとき)" }, new[] { "on", "常に" }, new[] { "off", "なし" } })
             {
                 string v = opt[0];
-                var mi = Item(opt[1], delegate { cfg.TextShadow = v; view.InvalidateVisual(); cfg.Save(); });
+                var mi = Item(opt[1], delegate { cfg.TextShadow = v; InvalidateAll(); cfg.Save(); });
                 mi.Tag = v;
                 miShadow.DropDownItems.Add(mi);
             }
@@ -464,12 +470,12 @@ namespace DeskMeter
 
             miImages = new WF.ToolStripMenuItem("画像");
             miImages.DropDownItems.Add(Item("マスコット画像を選ぶ...", delegate { PickImage(true); }));
-            miImages.DropDownItems.Add(Item("マスコット画像を外す", delegate { cfg.MascotImage = ""; view.Relayout(); cfg.Save(); }));
+            miImages.DropDownItems.Add(Item("マスコット画像を外す", delegate { cfg.MascotImage = ""; RelayoutAll(); cfg.Save(); }));
             miMascotPlace = new WF.ToolStripMenuItem("マスコット画像の位置");
             foreach (string[] opt in new[] { new[] { "free", "空きスペースに収める" }, new[] { "right", "右に並べる (立ち絵向け)" }, new[] { "left", "左に並べる (立ち絵向け)" } })
             {
                 string v = opt[0];
-                var mi = Item(opt[1], delegate { cfg.MascotPlacement = v; view.Relayout(); cfg.Save(); });
+                var mi = Item(opt[1], delegate { cfg.MascotPlacement = v; RelayoutAll(); cfg.Save(); });
                 mi.Tag = v;
                 miMascotPlace.DropDownItems.Add(mi);
             }
@@ -478,19 +484,19 @@ namespace DeskMeter
             foreach (int px in new[] { 120, 160, 220, 320, 480, 720 })
             {
                 int v = px;
-                var mi = Item(v + " px", delegate { cfg.MascotSize = v; view.Relayout(); cfg.Save(); });
+                var mi = Item(v + " px", delegate { cfg.MascotSize = v; RelayoutAll(); cfg.Save(); });
                 mi.Tag = v;
                 miMascotSize.DropDownItems.Add(mi);
             }
             miImages.DropDownItems.Add(miMascotSize);
             miImages.DropDownItems.Add(new WF.ToolStripSeparator());
             miImages.DropDownItems.Add(Item("背景画像を選ぶ...", delegate { PickImage(false); }));
-            miImages.DropDownItems.Add(Item("背景画像を外す", delegate { cfg.BackgroundImage = ""; view.InvalidateVisual(); cfg.Save(); }));
+            miImages.DropDownItems.Add(Item("背景画像を外す", delegate { cfg.BackgroundImage = ""; InvalidateAll(); cfg.Save(); }));
             miBgImageOpacity = new WF.ToolStripMenuItem("背景画像の濃さ");
             foreach (int p in new[] { 20, 35, 50, 75, 100 })
             {
                 int pct = p;
-                var mi = Item(pct + "%", delegate { cfg.BackgroundImageOpacity = pct / 100.0; view.InvalidateVisual(); cfg.Save(); });
+                var mi = Item(pct + "%", delegate { cfg.BackgroundImageOpacity = pct / 100.0; InvalidateAll(); cfg.Save(); });
                 mi.Tag = pct;
                 miBgImageOpacity.DropDownItems.Add(mi);
             }
@@ -511,7 +517,7 @@ namespace DeskMeter
             foreach (int s in new[] { 30, 60, 120, 300, 600, 1800 })
             {
                 int v = s;
-                var mi = Item(MeterView.SpanText(v), delegate { cfg.HistorySeconds = v; view.InvalidateVisual(); cfg.Save(); });
+                var mi = Item(MeterView.SpanText(v), delegate { cfg.HistorySeconds = v; InvalidateAll(); cfg.Save(); });
                 mi.Tag = v;
                 miHistory.DropDownItems.Add(mi);
             }
@@ -521,7 +527,7 @@ namespace DeskMeter
             foreach (string id in Settings.PanelIds)
             {
                 string pid = id;
-                var mi = Item(Settings.PanelName(pid), delegate { cfg.TogglePanel(pid); view.Relayout(); cfg.Save(); });
+                var mi = Item(Settings.PanelName(pid), delegate { cfg.TogglePanel(pid); RelayoutAll(); cfg.Save(); });
                 mi.Tag = pid;
                 miPanels.DropDownItems.Add(mi);
             }
@@ -531,7 +537,8 @@ namespace DeskMeter
 
             miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
             menu.Items.Add(miEdit);
-            menu.Items.Add(Item("配置をリセット (標準の3列)", delegate { cfg.Layout = Settings.DefaultLayout(); view.Relayout(); cfg.Save(); }));
+            menu.Items.Add(Item("配置をリセット (標準の3列)", delegate { cfg.Layout = Settings.DefaultLayout(); RelayoutAll(); cfg.Save(); }));
+            BuildLayoutMenus();
 
             menu.Items.Add(new WF.ToolStripSeparator());
             miLock = Item("位置を固定", delegate { cfg.Locked = !cfg.Locked; cfg.Save(); });
@@ -556,7 +563,7 @@ namespace DeskMeter
             menu.Items.Add(Item("Peak と起動後の通信量をリセット", delegate
             {
                 lock (sampler.S) { sampler.S.PeakBps = 0; sampler.S.SessUp = 0; sampler.S.SessDown = 0; }
-                view.InvalidateVisual();
+                InvalidateAll();
             }));
             miAuto = Item("Windows 起動時に開始", ToggleAutoStart);
             menu.Items.Add(miAuto);
@@ -573,6 +580,7 @@ namespace DeskMeter
 
             menu.Opening += delegate
             {
+                UpdateLayoutMenus();
                 miVisible.Text = IsVisible ? "ウィジェットを隠す" : "ウィジェットを表示";
                 foreach (WF.ToolStripItem it in miPanels.DropDownItems)
                 {
@@ -633,37 +641,14 @@ namespace DeskMeter
             mi.Click += delegate
             {
                 f.SetValue(cfg, !(bool)f.GetValue(cfg));
-                view.Relayout();
+                RelayoutAll();
                 cfg.Save();
             };
             parent.DropDownItems.Add(mi);
         }
 
         // 隠している間は再描画も計測も止める (省電力)
-        void ToggleVisible()
-        {
-            if (IsVisible)
-            {
-                Hide();
-                timer.Stop();
-                UpdatePaused();
-            }
-            else
-            {
-                Show();
-                ApplyMode();
-                UpdatePaused();
-                ScheduleNextTick();
-                timer.Start();
-                sampler.Poke();
-            }
-        }
-
-        // 隠している間とセッションロック中は計測をスキップする
-        void UpdatePaused()
-        {
-            sampler.Paused = !IsVisible || sessionLocked;
-        }
+        // ToggleVisible と UpdatePaused は MainWindowFloating.cs
 
         void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
         {
@@ -682,9 +667,9 @@ namespace DeskMeter
                 if (tray != null) tray.ShowBalloonTip(5000, AppName, "settings.json を読み込めませんでした (JSON の構文エラー)。設定は変更していません。", WF.ToolTipIcon.Warning);
                 return;
             }
-            view.LayoutTransform = new ScaleTransform(cfg.Scale, cfg.Scale);
-            view.ApplySkin();
-            view.Relayout();
+            ApplyScaleAll();
+            ApplySkinAll();
+            RelayoutAll();
             ScheduleNextTick();
             sampler.Poke();
             RestorePosition();
@@ -913,7 +898,7 @@ namespace DeskMeter
                     dlg.CheckFileExists = true;
                     if (dlg.ShowDialog() != WF.DialogResult.OK) return;
                     if (mascot) cfg.MascotImage = dlg.FileName; else cfg.BackgroundImage = dlg.FileName;
-                    view.Relayout();
+                    RelayoutAll();
                     cfg.Save();
                 }
             }
@@ -939,7 +924,7 @@ namespace DeskMeter
                 if (dlg.ShowDialog() != true) return;
                 cfg.Save();
                 sampler.RefreshWeatherNow();
-                view.InvalidateVisual();
+                InvalidateAll();
             }
             catch (Exception ex) { Log.Write("location dialog", ex); }
         }
@@ -975,6 +960,7 @@ namespace DeskMeter
                 var enc = new PngBitmapEncoder();
                 enc.Frames.Add(BitmapFrame.Create(rtb));
                 using (FileStream fs = File.Create(snapshotPath)) enc.Save(fs);
+                SaveFloatSnapshots();
             }
             catch (Exception ex) { Log.Write("snapshot", ex); }
         }
@@ -982,6 +968,8 @@ namespace DeskMeter
         void Cleanup()
         {
             timer.Stop();
+            foreach (PanelWindow f in floats) { try { f.Close(); } catch { } }
+            floats.Clear();
             displayChangeTimer.Stop();
             if (snapshotPath == null)
             {

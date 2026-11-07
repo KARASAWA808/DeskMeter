@@ -243,6 +243,7 @@ namespace DeskMeter
         // いちばん空いている列の下にキャラクターを描く
         void DrawMascot(DrawingContext dc)
         {
+            if (SinglePanel != null) return;
             if (DrawMascotImage(dc)) return;   // 画像が設定されていればそちらを使う
             if (string.IsNullOrEmpty(sk.Mascot) || cfg.Layout.Count == 0) return;
             int cols = cfg.Layout.Count;

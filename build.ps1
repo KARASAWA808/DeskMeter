@@ -18,7 +18,7 @@ $iconArg = @(); if (Test-Path $ico) { $iconArg = @("/win32icon:$ico") }
     "/r:$fw\WPF\PresentationFramework.dll" `
     "/r:$fw\WPF\WindowsBase.dll" `
     "/r:$fw\System.Xaml.dll" `
-    /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll `
+    /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:Microsoft.VisualBasic.dll `
     $src
 
 if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)" }

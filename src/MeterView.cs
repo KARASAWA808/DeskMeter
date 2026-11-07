@@ -35,7 +35,7 @@ namespace DeskMeter
         {
             st = state;
             this.cfg = cfg;
-            contentW = WidthFor(cfg);
+            contentW = WidthNow();
             SnapsToDevicePixels = true;
             ApplySkin();
         }
@@ -50,7 +50,7 @@ namespace DeskMeter
         // 設定変更後にサイズを計算し直す
         public void Relayout()
         {
-            contentW = WidthFor(cfg);
+            contentW = WidthNow();
             InvalidateMeasure();
             InvalidateVisual();
         }
@@ -74,6 +74,25 @@ namespace DeskMeter
         // パネルのダブルクリック (パネルID, 補助情報: ドライブ名など)。配置編集中は起きない
         public event Action<string, string> PanelActivated;
         readonly List<KeyValuePair<Rect, string>> driveBoxes = new List<KeyValuePair<Rect, string>>();   // ドライブ行の矩形
+
+        // 独立ウィンドウ用: このパネルだけを描く (配置編集・マスコット・立ち絵は無し)
+        public string SinglePanel;
+        List<List<string>> singleLayout;
+
+        List<List<string>> SingleLayout()
+        {
+            if (singleLayout == null || singleLayout[0][0] != SinglePanel)
+            {
+                singleLayout = new List<List<string>>();
+                singleLayout.Add(new List<string>(new[] { SinglePanel }));
+            }
+            return singleLayout;
+        }
+
+        double WidthNow()
+        {
+            return SinglePanel != null ? Gap * 2 + ColW : WidthFor(cfg);
+        }
 
         public bool EditMode
         {
@@ -323,8 +342,8 @@ namespace DeskMeter
         {
             dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
             // 立ち絵を横に並べる設定なら、その分だけ窓を広げる
-            sideExtra = SideExtra();
-            double wantW = WidthFor(cfg) + sideExtra;
+            sideExtra = SinglePanel != null ? 0 : SideExtra();
+            double wantW = WidthNow() + sideExtra;
             if (Math.Abs(wantW - contentW) > 0.5)
             {
                 contentW = wantW;
@@ -342,7 +361,7 @@ namespace DeskMeter
             boxes.Clear();
             lock (st)
             {
-                List<List<string>> layout = cfg.Layout;
+                List<List<string>> layout = SinglePanel != null ? SingleLayout() : cfg.Layout;
                 for (int c = 0; c < layout.Count; c++)
                 {
                     y = top;
