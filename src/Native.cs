@@ -15,6 +15,8 @@ namespace DeskMeter
         public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
         public const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10;
         public const int WM_WINDOWPOSCHANGING = 0x0046;
+        public const int WM_HOTKEY = 0x0312;
+        public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_WIN = 0x8, MOD_NOREPEAT = 0x4000;
         public const uint EVENT_SYSTEM_FOREGROUND = 3;
         public const uint GW_HWNDNEXT = 2;
 
@@ -78,6 +80,10 @@ namespace DeskMeter
         public static extern bool UnhookWinEvent(IntPtr hook);
         [DllImport("user32.dll")]
         public static extern bool DestroyIcon(IntPtr h);
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool RegisterHotKey(IntPtr h, int id, uint mods, uint vk);
+        [DllImport("user32.dll")]
+        public static extern bool UnregisterHotKey(IntPtr h, int id);
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
         [DllImport("user32.dll")]

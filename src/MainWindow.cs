@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -45,7 +46,12 @@ namespace DeskMeter
             bool created;
             using (var mutex = new Mutex(true, "DeskMeter_SingleInstance_" + (snapshot == null ? "app" : "snapshot"), out created))
             {
-                if (!created) return;
+                if (!created)
+                {
+                    // 二重起動: 黙って終わらず、起動中のインスタンスに「表示して」と知らせる
+                    if (snapshot == null) MainWindow.SignalShow();
+                    return;
+                }
                 WF.Application.EnableVisualStyles();
                 // 1秒に1回しか描かない透過ウィンドウなので、GPUデバイスを作らずソフトウェア描画にして常駐メモリを抑える
                 RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
@@ -66,6 +72,8 @@ namespace DeskMeter
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string AppName = "DeskMeter";
         const int EdgeMargin = 8, SnapDistance = 16;
+        const string ShowEventName = @"Local\DeskMeter_Show";   // 2 つ目のプロセスがセットする名前付きイベント
+        const int HotkeyId = 0x4D45;
         public static int SnapshotDelay = 8;
         public static bool SnapshotEdit;
 
@@ -82,11 +90,14 @@ namespace DeskMeter
         bool sessionLocked;
         Native.WinEventProc winEventProc;   // GC されないよう保持
         IntPtr winEventHook;
+        bool hotkeyRegistered;
+        EventWaitHandle showEvent;
+        readonly ManualResetEvent showStop = new ManualResetEvent(false);
 
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey;
 
         public MainWindow(string snapshotPath)
         {
@@ -111,6 +122,7 @@ namespace DeskMeter
             view.LayoutTransform = new ScaleTransform(cfg.Scale, cfg.Scale);
             Content = view;
             view.LayoutChanged += delegate { cfg.Save(); };
+            view.PanelActivated += OpenPanelApp;
 
             MouseLeftButtonDown += delegate
             {
@@ -146,6 +158,7 @@ namespace DeskMeter
                 SyncAutoStartPath();
                 SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
                 SystemEvents.SessionSwitch += OnSessionSwitch;
+                StartShowListener();
             }
             else
             {
@@ -277,10 +290,17 @@ namespace DeskMeter
             RestorePosition();
             ApplyMode();
             ApplyClickThrough();
+            ApplyHotkey();
         }
 
         IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (msg == Native.WM_HOTKEY && wParam.ToInt32() == HotkeyId)
+            {
+                ToggleVisible();
+                handled = true;
+                return IntPtr.Zero;
+            }
             // 「デスクトップに固定」中は常に Z オーダーの最背面に留める
             if (msg == Native.WM_WINDOWPOSCHANGING && cfg.Mode == "desktop" && !showDesktop)
             {
@@ -427,6 +447,16 @@ namespace DeskMeter
             }
             menu.Items.Add(miInterval);
 
+            miHistory = new WF.ToolStripMenuItem("グラフの時間幅");
+            foreach (int s in new[] { 30, 60, 120, 300, 600, 1800 })
+            {
+                int v = s;
+                var mi = Item(MeterView.SpanText(v), delegate { cfg.HistorySeconds = v; view.InvalidateVisual(); cfg.Save(); });
+                mi.Tag = v;
+                miHistory.DropDownItems.Add(mi);
+            }
+            menu.Items.Add(miHistory);
+
             miPanels = new WF.ToolStripMenuItem("表示する項目");
             foreach (string id in Settings.PanelIds)
             {
@@ -450,9 +480,23 @@ namespace DeskMeter
             menu.Items.Add(miClick);
             miVisible = Item("ウィジェットを隠す", ToggleVisible);
             menu.Items.Add(miVisible);
+            miHotkey = new WF.ToolStripMenuItem("ホットキー (表示/非表示)");
+            foreach (string k in new[] { "", "Ctrl+Alt+D", "Ctrl+Shift+D", "Win+Shift+D" })
+            {
+                string v = k;
+                var mi = Item(v.Length == 0 ? "無効" : v, delegate { cfg.Hotkey = v; ApplyHotkey(); cfg.Save(); });
+                mi.Tag = v;
+                miHotkey.DropDownItems.Add(mi);
+            }
+            menu.Items.Add(miHotkey);
 
             menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add(Item("天気を今すぐ更新", delegate { sampler.RefreshWeatherNow(); }));
+            menu.Items.Add(Item("Peak と起動後の通信量をリセット", delegate
+            {
+                lock (sampler.S) { sampler.S.PeakBps = 0; sampler.S.SessUp = 0; sampler.S.SessDown = 0; }
+                view.InvalidateVisual();
+            }));
             miAuto = Item("Windows 起動時に開始", ToggleAutoStart);
             menu.Items.Add(miAuto);
             menu.Items.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
@@ -477,6 +521,8 @@ namespace DeskMeter
                 miEdit.Checked = view.EditMode;
                 foreach (WF.ToolStripMenuItem mi in miSkin.DropDownItems) mi.Checked = (string)mi.Tag == cfg.Skin;
                 foreach (WF.ToolStripMenuItem mi in miInterval.DropDownItems) mi.Checked = (int)mi.Tag == cfg.IntervalMs;
+                foreach (WF.ToolStripMenuItem mi in miHistory.DropDownItems) mi.Checked = (int)mi.Tag == cfg.HistorySeconds;
+                foreach (WF.ToolStripMenuItem mi in miHotkey.DropDownItems) mi.Checked = string.Equals((string)mi.Tag, cfg.Hotkey, StringComparison.OrdinalIgnoreCase);
                 miDesktop.Checked = cfg.Mode == "desktop";
                 miTopmost.Checked = cfg.Mode == "topmost";
                 miNormal.Checked = cfg.Mode == "normal";
@@ -572,7 +618,115 @@ namespace DeskMeter
             RestorePosition();
             ApplyMode();
             ApplyClickThrough();
+            ApplyHotkey();
             sampler.RefreshWeatherNow();
+        }
+
+        // ---------------------------------------------------------------- hotkey / second instance / panel double-click
+
+        // Settings.Hotkey を RegisterHotKey で登録し直す。他のアプリと競合して登録できなければログに書いて無視
+        void ApplyHotkey()
+        {
+            if (hwnd == IntPtr.Zero || snapshotPath != null) return;
+            if (hotkeyRegistered) { Native.UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+            uint mods, vk;
+            if (!ParseHotkey(cfg.Hotkey, out mods, out vk)) return;
+            if (Native.RegisterHotKey(hwnd, HotkeyId, mods | Native.MOD_NOREPEAT, vk)) hotkeyRegistered = true;
+            else Log.Write("hotkey " + cfg.Hotkey, new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+        }
+
+        // "Ctrl+Alt+D" のような表記を修飾キーと仮想キーコードに分ける
+        static bool ParseHotkey(string s, out uint mods, out uint vk)
+        {
+            mods = 0; vk = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            foreach (string raw in s.Split('+'))
+            {
+                string p = raw.Trim();
+                if (p.Length == 0) continue;
+                switch (p.ToLowerInvariant())
+                {
+                    case "ctrl": case "control": mods |= Native.MOD_CONTROL; continue;
+                    case "alt": mods |= Native.MOD_ALT; continue;
+                    case "shift": mods |= Native.MOD_SHIFT; continue;
+                    case "win": case "windows": mods |= Native.MOD_WIN; continue;
+                }
+                Key key;
+                string name = p.Length == 1 && char.IsDigit(p[0]) ? "D" + p : p;   // "1" → Key.D1
+                if (!Enum.TryParse<Key>(name, true, out key)) return false;
+                vk = (uint)KeyInterop.VirtualKeyFromKey(key);
+            }
+            return vk != 0;
+        }
+
+        // 2 つ目のプロセスから: 起動中のインスタンスに表示を頼む
+        public static void SignalShow()
+        {
+            try
+            {
+                using (var ev = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName)) ev.Set();
+            }
+            catch (Exception ex) { Log.Write("signal show", ex); }
+        }
+
+        // 1 つ目のプロセスで: 名前付きイベントを待ち、セットされたら表示する
+        void StartShowListener()
+        {
+            try
+            {
+                showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+                var t = new Thread(delegate()
+                {
+                    WaitHandle[] hs = { showEvent, showStop };
+                    while (WaitHandle.WaitAny(hs) == 0)
+                        Dispatcher.BeginInvoke(new Action(delegate { Show(); ApplyMode(); }));
+                });
+                t.IsBackground = true;
+                t.Name = "DeskMeter show listener";
+                t.Start();
+            }
+            catch (Exception ex) { Log.Write("show listener", ex); }
+        }
+
+        // パネルのダブルクリックで関連するアプリを開く
+        void OpenPanelApp(string id, string arg)
+        {
+            try
+            {
+                switch (id)
+                {
+                    case "cpu": case "topcpu": case "topmem": case "gpu":
+                        Process.Start("taskmgr.exe");
+                        break;
+                    case "drives":
+                        if (arg != null) Process.Start("explorer.exe", arg + "\\");
+                        else Process.Start("explorer.exe");
+                        break;
+                    case "network":
+                        Process.Start("control.exe", "ncpa.cpl");
+                        break;
+                    case "weather":
+                        Process.Start(string.Format(System.Globalization.CultureInfo.InvariantCulture, "https://www.windy.com/{0:0.###}/{1:0.###}", cfg.Latitude, cfg.Longitude));
+                        break;
+                    case "clock":
+                        StartFirst("ms-clock:", "outlookcal:");
+                        break;
+                    case "calendar": case "datetile":
+                        StartFirst("outlookcal:", "ms-clock:");
+                        break;
+                }
+            }
+            catch (Exception ex) { Log.Write("open " + id, ex); }
+        }
+
+        // 先に開けたものを使う (プロトコルが登録されていなければ次へ)。全部失敗しても何もしない
+        static void StartFirst(params string[] uris)
+        {
+            foreach (string u in uris)
+            {
+                try { Process.Start(u); return; }
+                catch { }
+            }
         }
 
         void BuildTray()
@@ -730,6 +884,9 @@ namespace DeskMeter
                 SystemEvents.SessionSwitch -= OnSessionSwitch;
             }
             if (winEventHook != IntPtr.Zero) Native.UnhookWinEvent(winEventHook);
+            if (hotkeyRegistered) { Native.UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+            showStop.Set();
+            if (showEvent != null) { showEvent.Close(); showEvent = null; }
             if (tray != null)
             {
                 tray.Visible = false;
