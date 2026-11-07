@@ -644,7 +644,7 @@ namespace DeskMeter
             menu.Items.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
             menu.Items.Add(Item("設定ファイルを再読み込み", ReloadSettings));
             var help = new WF.ToolStripMenuItem("ヘルプ");
-            help.DropDownItems.Add(Item("天気の表示場所を変更する手順", delegate { OpenHelp("weather-location.html"); }));
+            help.DropDownItems.Add(Item("天気の場所を設定する (地名検索 / 緯度・経度)", delegate { OpenHelp("weather-location.html"); }));
             help.DropDownItems.Add(Item("スキンの作り方 (skins フォルダー)", delegate { OpenHelp("custom-skin.html"); }));
             help.DropDownItems.Add(Item("CPU 温度・電力・ファンを表示する (HWiNFO 連携)", delegate { OpenHelp("hwinfo.html"); }));
             help.DropDownItems.Add(Item("ヘルプのフォルダーを開く", delegate { OpenHelp(null); }));

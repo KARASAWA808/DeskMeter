@@ -65,17 +65,19 @@
   <tr><td><code>BorderWidth</code></td><td>数値</td><td>外枠の太さ (既定 1)。0.5〜6</td></tr>
   <tr><td><code>Scanlines</code></td><td>true / false</td><td>CRT 風の走査線を重ねる</td></tr>
   <tr><td><code>TileOverride</code></td><td>色</td><td>これを書くと、全パネルの見出しアイコンの背景がこの 1 色になる (<code>Tiles</code> より優先)</td></tr>
-  <tr><td><code>Title</code></td><td>色</td><td>パネルの見出し、Used/Free/Total の見出し行、時計の日付など、白系の文字</td></tr>
-  <tr><td><code>Text1</code></td><td>色</td><td>CPU 名・クロック、Page のバー、Ping、ネットワークの Up など (Classic では黄色)</td></tr>
-  <tr><td><code>Text2</code></td><td>色</td><td>RAM / VRAM のバー、時計の時刻、IP、Down など (Classic では水色)</td></tr>
-  <tr><td><code>Accent1</code></td><td>色</td><td>GPU 温度、ドライブの空き、グラフの線など (Classic では緑)</td></tr>
-  <tr><td><code>Accent2</code></td><td>色</td><td>Memory Clock、消費電力、Uptime、日の出・日の入 など (Classic ではオレンジ)</td></tr>
-  <tr><td><code>Lime</code></td><td>色</td><td>ドライブの読み取り速度など (明るい緑)</td></tr>
+  <tr><td><code>Title</code></td><td>色</td><td>パネルの見出し、Used/Free/Total の見出し行、カレンダーの月と日付、リングゲージの数値など、白系の文字</td></tr>
+  <tr><td><code>Text1</code></td><td>色</td><td>CPU 名・クロック、GPU 名と GPU 使用率のバー、Ping、ネットワークの Up、コミット済みメモリ、湿度 など (Classic では黄色)</td></tr>
+  <tr><td><code>Text2</code></td><td>色</td><td>VRAM のバー、時計の時刻、Int IP、Down、ドライブの名前と容量、使用中メモリ、降水確率 など (Classic では水色)</td></tr>
+  <tr><td><code>Accent1</code></td><td>色</td><td>GPU 温度のラベル、上り・読み取りの ▲、使用可能メモリ、グラフの 1 本目の線、配置編集の挿入位置の目印 など (Classic では緑)</td></tr>
+  <tr><td><code>Accent2</code></td><td>色</td><td>Memory Clock、消費電力、Uptime、日の出・日の入、ページプール など (Classic ではオレンジ)</td></tr>
+  <tr><td><code>Lime</code></td><td>色</td><td>ネットワークの Peak、ドライブの読み取り速度、時計の日付、天気の気温と地名、予報の降水確率 など (明るい緑)</td></tr>
   <tr><td><code>Warn</code></td><td>色</td><td>温度・メモリが高めのときの警告色</td></tr>
   <tr><td><code>Danger</code></td><td>色</td><td>さらに高いときの危険色、年末カウントダウンの数字</td></tr>
   <tr><td><code>Muted</code></td><td>色</td><td>説明文や単位など控えめな文字 (灰色)</td></tr>
   <tr><td><code>Dim</code></td><td>色</td><td>カレンダーの前後の月の日付など、さらに薄い文字</td></tr>
-  <tr><td><code>Magenta</code> / <code>Violet</code> / <code>Blue</code></td><td>色</td><td>風、UV 指数、Fan、ドライブの書き込み、ネットワークの合計など、個別の行の色</td></tr>
+  <tr><td><code>Magenta</code></td><td>色</td><td>風、ページファイル、リングゲージの 4 本目</td></tr>
+  <tr><td><code>Violet</code></td><td>色</td><td>UV 指数、GPU と CPU の Fan、キャッシュ済みメモリ、メモリ構成の「変更済み」</td></tr>
+  <tr><td><code>Blue</code></td><td>色</td><td>メモリ構成の「スタンバイ」。<code>CalSat</code> を省略したときの土曜の色にもなる</td></tr>
   <tr><td><code>Track</code></td><td>色</td><td>バーの背景 (まだ埋まっていない部分)</td></tr>
   <tr><td><code>GraphBg</code></td><td>色</td><td>折れ線グラフの背景</td></tr>
   <tr><td><code>GraphBorder</code></td><td>色</td><td>折れ線グラフの枠線</td></tr>
@@ -91,7 +93,7 @@
   <tr><td><code>Palette</code></td><td>色の配列</td><td>CPU のコア別バー、プロセス一覧の行の色。先頭から順に使い、足りなければ繰り返す。1 色以上</td></tr>
   <tr><td><code>Tiles</code></td><td>色の配列 (6 個)</td><td>見出しアイコンの背景。順に GPU, CPU, ネットワーク, ドライブ, CPU 上位プロセス, メモリ上位プロセス。6 個ちょうどでないと無視される</td></tr>
 </table>
-<p class="note">JSON の中の <code>"_comment"</code> など、上の表に無い項目は無視されるので、メモに使えます。</p>
+<p class="note"><code>"_comment"</code> のように <code>_</code> で始まる項目は無視されるので、メモに使えます。それ以外の表に無い項目は綴り間違いとみなして、スキンを選んだときに「問題 1 件」のように知らせ、<code>deskmeter.log</code> に項目名を残します (表示はそのまま続きます)。</p>
 
 <h2>最小の例</h2>
 <p>背景を濃い紫、文字をピンク系にするだけのスキン。他はすべて Classic のままです。</p>

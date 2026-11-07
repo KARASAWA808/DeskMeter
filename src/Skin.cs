@@ -257,7 +257,7 @@ namespace DeskMeter
                 if (raw != null)
                 {
                     foreach (string key in raw.Keys)
-                        if (typeof(SkinFile).GetField(key) == null) ctx.Warn(key, "知らないキーです (綴りを確認してください)");
+                        if (!key.StartsWith("_") && typeof(SkinFile).GetField(key) == null) ctx.Warn(key, "知らないキーです (綴りを確認してください)");   // "_comment" などメモ用のキーは許す
                 }
                 if (!string.IsNullOrWhiteSpace(f.FontFamily))
                 {

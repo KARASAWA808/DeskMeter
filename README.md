@@ -39,8 +39,6 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 | --- | --- |
 | ![](previews/layout-edit.png) | ![](previews/floating-clock.png) ![](previews/floating-weather.png) |
 
-プレビューの撮り方: `DeskMeter.exe --snapshot out.png --delay 6`（`--edit` を付けると配置編集中の見た目）。設定は exe と同じフォルダーの `settings.json` を使います。
-
 ## 使い方
 
 1. [Releases](../../releases) から zip をダウンロードして展開し、`DeskMeter.exe` を実行します。
@@ -48,20 +46,37 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 2. 右クリックでメニューが開きます。左ドラッグで移動します。タスクトレイのアイコンからも同じメニューを開けます。
 3. 設定は exe と同じフォルダーの `settings.json` に保存されます（メニューの「設定ファイルを開く」で編集。保存すると自動で反映されます）。
 
-主なメニュー: スキン / 表示モード（デスクトップに固定・常に最前面・通常）/ モニターへ移動 / サイズ / 背景の不透明度 / 更新間隔 / グラフの時間幅 / 表示する項目 / 配置の編集 / パネルを切り離す / 配置プリセット / テーマ / 画像 / ホットキー / Windows 起動時に開始 / ヘルプ
+主なメニュー: スキン / 表示モード（デスクトップに固定・常に最前面・通常）/ モニターへ移動 / サイズ / 背景の不透明度 / 更新間隔 / グラフの時間幅 / 表示する項目 / 配置の編集 / パネルを切り離す / 配置プリセット / テーマ / 画像 / ホットキー / 天気の場所を設定 / Windows 起動時に開始 / ヘルプ
+
+### 更新するとき
+
+新しい zip の `DeskMeter.exe` と `help\`、`skins\` のファイルを上書きするだけです。`settings.json`、自作のスキン（`skins\` に足したもの）、`themes\` はそのまま使えます。
+
+### アンインストール
+
+1. メニューの「Windows 起動時に開始」のチェックを外します（レジストリ `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` の `DeskMeter` が消えます）。
+2. 「終了」で閉じて、フォルダーごと削除します。
+
+書き込む場所はこのフォルダーと上のレジストリ値だけです。フォルダーには `settings.json`、`deskmeter.log`、壊れた設定の退避 `settings.broken-*.json`、保存したテーマ `themes\` ができます。
+
+### ログと不具合の報告
+
+エラーは exe と同じフォルダーの `deskmeter.log` に書かれます（512 KB を超えると次の書き込み時に消して作り直します）。設定・スキン・画像の読み込みに問題があったときはタスクトレイの通知でも知らせます。
+
+不具合は [Issues](../../issues) へ。Windows のバージョン、`deskmeter.log`、できれば `settings.json`（`Latitude`/`Longitude`/`LocationName` は消して構いません）を添えてもらえると助かります。
 
 ## 動作環境
 
-- Windows 10 / 11（64 ビット）
+- Windows 10 / 11（64 ビット）。.NET Framework 4.8 が必要です。Windows 10 バージョン 1903 以降と Windows 11 には最初から入っています。それより古い Windows 10 では、Microsoft の .NET Framework 4.8 インストーラーを先に入れてください。
 - GPU パネルは NVIDIA GPU（ドライバー付属の `nvidia-smi.exe`）が必要です。無い環境では「取得できません」と表示されるだけで他は動きます。
 - CPU 温度などは Windows 標準では取れないため、HWiNFO64 の「Shared Memory Support」を有効にしたときだけ表示されます（`help\hwinfo.html`）。
 - **Smart App Control** が有効な PC では、署名のない exe は起動できません。その場合は下記の方法でその PC 上でビルドしてください。
 
 ## 外部への通信
 
-- 天気: Open-Meteo（`api.open-meteo.com`）に設定した緯度・経度を送ります。初期値は東京駅付近です。`settings.json` の `WeatherEnabled` を `false` にすると通信しません。
-- 場所の検索: メニューの「天気の場所を設定」で地名を検索したときだけ、入力した地名を Open-Meteo のジオコーディング（`geocoding-api.open-meteo.com`）に送ります。
-- Ping: `settings.json` の `PingHost`（既定 `1.1.1.1`）へ 5 秒おき。空文字で無効。
+- 天気: Open-Meteo（`api.open-meteo.com`）に設定した緯度・経度を 15 分おきに送ります。初期値は東京駅付近です。メニューの「天気の場所を設定」で「天気を取得しない」にすると通信しません。
+- 場所の検索: 「天気の場所を設定」で地名を検索したときだけ、入力した地名を Open-Meteo のジオコーディング（`geocoding-api.open-meteo.com`）に送ります。
+- Ping: `settings.json` の `PingHost`（既定 `1.1.1.1`）へ 5 秒おき（更新間隔を 5 秒より長くしたときはその間隔）。空文字で無効。
 - 天気パネルをダブルクリックすると、設定した緯度・経度を付けた windy.com を既定のブラウザーで開きます（アプリ自身は通信しません）。
 - それ以外の通信はありません。
 
@@ -80,6 +95,45 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 1 秒更新で 1 コアの 2% 前後（28 コア機で全体の 0.1% 程度）、メモリ約 100 MB（ソフトウェア描画、GPU デバイスを作りません）。再描画は計測が終わるたびに 1 回だけで、ウィジェットを隠している間とロック中は計測も `nvidia-smi` も止まります。
 
 負荷の内訳を調べたいときは、環境変数 `DESKMETER_PROFILE=1` を付けて起動すると、描画と計測にかかった時間が 30 秒ごとに `deskmeter.log` に書かれます。
+
+## settings.json の項目
+
+メニューで変えられるものがほとんどですが、`ShowIp` / `ShowForecast` / `ShowHolidays` と `Hotkey` の自由な組み合わせはファイルを直接編集します。範囲外の値は既定値に戻るか、範囲内に丸められます。読めない項目があるときは、その項目だけ既定値にして通知します。
+
+| 項目 | 既定値 | 意味 |
+| --- | --- | --- |
+| `Skin` | `"Classic"` | 内蔵スキン名、または `skins\*.json` のファイル名（拡張子なし） |
+| `Scale` | `1.0` | 表示倍率。0.5〜3.0 |
+| `BackgroundOpacity` | `0.82` | 背景の不透明度。0〜1 |
+| `TextShadow` | `"auto"` | 文字の影・縁取り。`"auto"`（不透明度 50% 未満のとき）/ `"on"` / `"off"` |
+| `Mode` | `"desktop"` | `"desktop"`（デスクトップに固定）/ `"topmost"`（常に最前面）/ `"normal"` |
+| `Locked` / `ClickThrough` | `false` | 位置の固定 / クリックの透過 |
+| `IntervalMs` | `1000` | 更新間隔（ミリ秒）。250〜10000 |
+| `HistorySeconds` | `120` | グラフの時間幅（秒）。30〜1800 |
+| `Hotkey` | `""` | 表示/非表示のホットキー。`"Ctrl+Alt+D"` のように `Ctrl` / `Alt` / `Shift` / `Win` とキー名（`A`〜`Z`、`0`〜`9`、`F1`〜`F12`、`Space` など）を `+` でつなぐ。空で無効 |
+| `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `clock` `calendar` `datetile` `weather`。最大 6 列 |
+| `CompactCores` | `false` | コアごとの使用率を 2 列に詰める |
+| `Floating` / `FloatPositions` | `[]` | 切り離したパネルの ID と、その位置（モニター名と作業領域の左上からのピクセル） |
+| `Monitor` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか |
+| `BackgroundImage` / `BackgroundImageOpacity` | `""` / `0.35` | 背景画像（絶対パス、または exe のフォルダーからの相対パス）とその濃さ 0〜1 |
+| `MascotImage` / `MascotPlacement` / `MascotSize` | `""` / `"free"` / `220` | マスコット画像、置き方（`free` / `right` / `left`）、最大の高さ 60〜1200 px |
+| `ShowIp` | `true` | ネットワークパネルに内部 IP を出す。配信や画面共有で隠したいときは `false` |
+| `PingHost` | `"1.1.1.1"` | Ping の宛先。空で無効 |
+| `WeatherEnabled` | `true` | `false` で天気を取得しない |
+| `Latitude` / `Longitude` / `LocationName` | `35.68` / `139.77` / `"東京都 千代田区"` | 天気の場所と表示名（`help\weather-location.html`） |
+| `ShowForecast` | `true` | 天気パネルに 3 日予報を出す |
+| `ShowHolidays` | `true` | カレンダーに日本の祝日を出す |
+| `MemoryPanelAdded` / `Left` / `Top` | | 古い設定からの移行用。触らなくて構いません |
+
+## コマンドライン
+
+| 引数 | 動き |
+| --- | --- |
+| `--snapshot out.png [--delay 秒] [--edit]` | 描画内容を PNG に保存して終了します（既定 8 秒後。`--edit` で配置編集中の見た目）。README のプレビューはこれで撮っています |
+| `--reload` | 起動中の DeskMeter に設定ファイルの再読み込みを頼んで終了します |
+| `--toggle-edit` | 起動中の DeskMeter の配置編集モードを切り替えて終了します |
+
+2 つ目の `DeskMeter.exe` を普通に起動すると、先に動いているものを表示して自分は終了します。
 
 ## ライセンス
 
