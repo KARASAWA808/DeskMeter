@@ -218,13 +218,14 @@ namespace DeskMeter
             }
             dc.DrawRectangle(null, GraphBorder, new Rect(x + 0.5, y + 0.5, ColW - 1, 13));
             y += 18;
-            double lx = x;
+            // 凡例は 2 行 × 2 項目 (1 行だと列の幅に収まらない)
             for (int i = 0; i < 4; i++)
             {
-                dc.DrawRectangle(segBrush[i], GraphBorder, new Rect(lx, y + 3, 8, 8));
-                lx += 11 + T(dc, segName[i] + " " + BytesShort(segs[i]), lx + 11, y, 10.5, Gray) + 7;
+                double lx = x + (i % 2) * (ColW / 2), ly = y + (i / 2) * 15;
+                dc.DrawRectangle(segBrush[i], GraphBorder, new Rect(lx, ly + 3, 8, 8));
+                T(dc, segName[i] + " " + BytesShort(segs[i]), lx + 11, ly, 10.5, Gray, 0, false, ColW / 2 - 14);
             }
-            y += 18;
+            y += 32;
             Graph(dc, new Rect(x, y, ColW, 40), new[] { st.RamHist }, new[] { Skin.P(Cyan, 1.3) }, 100);
             return y + 40;
         }
