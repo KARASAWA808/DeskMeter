@@ -119,7 +119,9 @@ namespace DeskMeter
         // 背景画像を窓いっぱいに (cover) 敷く
         void DrawBackgroundImage(DrawingContext dc)
         {
-            BitmapSource img = GetImage(bgSlot, cfg.BackgroundImage, 1400);
+            // デコードの高さは実際の表示ピクセル (窓の高さ × DPI × 拡大率) に合わせる。400 px 刻みに丸めて、窓の高さが少し変わるたびに読み直さないようにする
+            int decodeH = (int)Math.Min(4400, Math.Max(1400, Math.Ceiling(contentH * dip * cfg.Scale / 400) * 400));
+            BitmapSource img = GetImage(bgSlot, cfg.BackgroundImage, decodeH);
             if (img == null) return;
             double scale = Math.Max(contentW / img.PixelWidth, contentH / img.PixelHeight);
             double w = img.PixelWidth * scale, h = img.PixelHeight * scale;

@@ -103,6 +103,7 @@ namespace DeskMeter
         IntPtr winEventHook;
         bool hotkeyRegistered;
         EventWaitHandle showEvent;
+        Thread showThread;
         internal const string EditEventName = @"Local\DeskMeter_Cmd_ToggleEdit";   // --toggle-edit (自動テスト・スクリプト用)
         internal const string ReloadEventName = @"Local\DeskMeter_Cmd_Reload";    // --reload
         EventWaitHandle editEvent, reloadEvent;
@@ -152,9 +153,14 @@ namespace DeskMeter
             // 内容の高さが決まった / 変わったときに、右端・下端基準の位置を保つ
             SizeChanged += delegate { if (!dragging) RestorePosition(); };
 
-            // 再描画は計測が終わるたびに 1 回。時計の秒表示のためだけに、間隔が 1 秒より長いときは timer で秒の変わり目にも描く
+            // 再描画は計測が終わるたびに 1 回。時計の秒表示のためだけに、間隔が 1 秒より長いときは timer で秒の変わり目にも描く。
+            // 計測が 0.5 秒より速いときは描画だけ 0.5 秒ごとに間引く (半透明ウィンドウの合成は面積に比例して重い。グラフの点は計測のたびに積まれる)
+            long lastDraw = 0;
             sampler.Sampled += delegate
             {
+                long now = (long)Native.GetTickCount64();
+                if (cfg.IntervalMs < 500 && now - lastDraw < 480) return;
+                lastDraw = now;
                 Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
                 {
                     InvalidateAll();
@@ -900,6 +906,7 @@ namespace DeskMeter
                 });
                 t.IsBackground = true;
                 t.Name = "DeskMeter show listener";
+                showThread = t;
                 t.Start();
             }
             catch (Exception ex) { Log.Write("show listener", ex); }
@@ -1139,6 +1146,7 @@ namespace DeskMeter
             if (winEventHook != IntPtr.Zero) Native.UnhookWinEvent(winEventHook);
             if (hotkeyRegistered) { Native.UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
             showStop.Set();
+            if (showThread != null) { showThread.Join(1000); showThread = null; }   // 待機中のスレッドが抜けてからハンドルを閉じる
             if (showEvent != null) { showEvent.Close(); showEvent = null; }
             if (editEvent != null) { editEvent.Close(); editEvent = null; }
             if (reloadEvent != null) { reloadEvent.Close(); reloadEvent = null; }

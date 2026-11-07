@@ -143,6 +143,22 @@ namespace DeskMeter
 
         [DllImport("kernel32.dll")]
         static extern uint GetActiveProcessorCount(ushort group);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct SYSTEM_POWER_STATUS
+        {
+            public byte ACLineStatus, BatteryFlag, BatteryLifePercent, SystemStatusFlag;
+            public int BatteryLifeTime, BatteryFullLifeTime;
+        }
+        [DllImport("kernel32.dll")]
+        static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
+
+        // バッテリー駆動中か (AC 接続・不明なら false)
+        public static bool OnBattery()
+        {
+            try { SYSTEM_POWER_STATUS st; return GetSystemPowerStatus(out st) && st.ACLineStatus == 0; }
+            catch { return false; }
+        }
         [DllImport("iphlpapi.dll")]
         public static extern int GetBestInterface(uint destAddr, out uint index);
 

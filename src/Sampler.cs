@@ -191,6 +191,14 @@ namespace DeskMeter
 
         public void Start()
         {
+            // システムイベントの購読は UI スレッドで行う (最初に購読したスレッドが通知スレッドになるため、計測スレッドからは購読しない)
+            try
+            {
+                SystemEvents.PowerModeChanged += OnPowerModeChanged;
+                NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+                NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+            }
+            catch (Exception ex) { Log.Write("init.events", ex); }
             thread = new Thread(Loop);
             thread.IsBackground = true;
             thread.Name = "DeskMeter sampler";
@@ -367,13 +375,6 @@ namespace DeskMeter
 
             StartSmi();
             StartStaticInfo();
-            try
-            {
-                SystemEvents.PowerModeChanged += OnPowerModeChanged;
-                NetworkChange.NetworkAddressChanged += OnNetworkChanged;
-                NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
-            }
-            catch (Exception ex) { Log.Write("init.events", ex); }
 
             // パフォーマンスカウンター (PDH)。"% Processor Utility" はタスクマネージャーと同じ基準の使用率。
             if (pdh.Open())
@@ -929,7 +930,9 @@ namespace DeskMeter
 
         int SmiInterval()
         {
-            return Math.Max(1, Math.Min(10, cfg.IntervalMs / 1000));
+            int s = Math.Max(1, Math.Min(10, cfg.IntervalMs / 1000));
+            // バッテリー駆動中は 10 秒ごとにする (ハイブリッド GPU のノートでは nvidia-smi の問い合わせが dGPU を起こし続けて電池を減らす)
+            return Native.OnBattery() ? 10 : s;
         }
 
         void WatchSmi()
