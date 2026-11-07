@@ -230,6 +230,7 @@ namespace DeskMeter
     {
         static readonly object gate = new object();
         static int count;
+        const long MaxBytes = 512 * 1024;   // これを超えていたら追記前に消す (起動をまたいで肥大化しないように)
 
         public static void Write(string where, Exception ex)
         {
@@ -239,6 +240,12 @@ namespace DeskMeter
                 {
                     if (count++ > 200) return;
                     string path = Path.Combine(AppPaths.Dir, "deskmeter.log");
+                    try
+                    {
+                        var fi = new FileInfo(path);
+                        if (fi.Exists && fi.Length > MaxBytes) fi.Delete();
+                    }
+                    catch { }
                     File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [" + where + "] " + ex + Environment.NewLine, Encoding.UTF8);
                 }
             }

@@ -51,24 +51,47 @@ namespace DeskMeter
             get { return Path.Combine(AppPaths.Dir, "settings.json"); }
         }
 
+        // 起動時の読み込み。ファイルが壊れていたら settings.broken-<日時>.json に退避してから既定値で動く
         public static Settings Load()
         {
-            try
-            {
-                if (File.Exists(FilePath))
-                {
-                    var s = new JavaScriptSerializer().Deserialize<Settings>(File.ReadAllText(FilePath, Encoding.UTF8));
-                    if (s != null)
-                    {
-                        s.Normalize();
-                        return s;
-                    }
-                }
-            }
-            catch (Exception ex) { Log.Write("Settings.Load", ex); }
+            bool broken;
+            Settings s = TryLoad(out broken);
+            if (s != null) return s;
+            if (broken) BackupBroken();
             var fresh = new Settings();
             fresh.Normalize();
             return fresh;
+        }
+
+        // ファイルを読んで返す。無ければ null (broken = false)、パースに失敗したら null (broken = true)
+        static Settings TryLoad(out bool broken)
+        {
+            broken = false;
+            try
+            {
+                if (!File.Exists(FilePath)) return null;
+                var s = new JavaScriptSerializer().Deserialize<Settings>(File.ReadAllText(FilePath, Encoding.UTF8));
+                if (s == null) { broken = true; return null; }
+                s.Normalize();
+                return s;
+            }
+            catch (Exception ex)
+            {
+                Log.Write("Settings.Load", ex);
+                broken = true;
+                return null;
+            }
+        }
+
+        static void BackupBroken()
+        {
+            try
+            {
+                string dest = Path.Combine(AppPaths.Dir, "settings.broken-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
+                File.Copy(FilePath, dest, true);
+                Log.Write("Settings.Load", new InvalidOperationException("settings.json が読めないので退避しました: " + dest));
+            }
+            catch (Exception ex) { Log.Write("Settings.Backup", ex); }
         }
 
         public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather" };
@@ -141,7 +164,10 @@ namespace DeskMeter
                 var c = new List<string>();
                 foreach (string id in col)
                     if (id != null && Array.IndexOf(PanelIds, id) >= 0 && seen.Add(id)) c.Add(id);
-                if (c.Count > 0 && cleaned.Count < MaxColumns) cleaned.Add(c);
+                if (c.Count == 0) continue;
+                // 列数の上限を超えた分は捨てずに最後の列の末尾へ寄せる
+                if (cleaned.Count < MaxColumns) cleaned.Add(c);
+                else cleaned[cleaned.Count - 1].AddRange(c);
             }
             Layout = cleaned;
         }
@@ -161,12 +187,21 @@ namespace DeskMeter
             if (LocationName == null) LocationName = "";
         }
 
-        // 設定ファイルを読み直して、このインスタンスに上書きする (他のオブジェクトが同じ参照を持っているため)
-        public void Reload()
+        // 設定ファイルを読み直して、このインスタンスに上書きする (他のオブジェクトが同じ参照を持っているため)。
+        // パースに失敗したときは何も変えずに false を返す (次の Save で壊れたファイルが既定値に戻らないように)
+        public bool Reload()
         {
-            Settings fresh = Load();
+            bool broken;
+            Settings fresh = TryLoad(out broken);
+            if (fresh == null)
+            {
+                if (broken) return false;
+                fresh = new Settings();   // ファイルが無いときは既定値
+                fresh.Normalize();
+            }
             foreach (FieldInfo f in typeof(Settings).GetFields(BindingFlags.Public | BindingFlags.Instance))
                 f.SetValue(this, f.GetValue(fresh));
+            return true;
         }
 
         public void Save()

@@ -110,7 +110,10 @@ namespace DeskMeter
 
         readonly Settings cfg;
         readonly ManualResetEvent stopEvent = new ManualResetEvent(false);
+        readonly AutoResetEvent wake = new AutoResetEvent(false);   // 更新間隔の変更などをすぐ反映させるために起こす
         Thread thread;
+        // true の間は計測をスキップする (ウィジェットを隠している間・セッションロック中)
+        public volatile bool Paused;
 
         readonly PdhQuery pdh = new PdhQuery();
         IntPtr hCores, hPerf, hFreq, hRead, hWrite, hIdle, hPage;
@@ -119,11 +122,16 @@ namespace DeskMeter
         readonly List<KeyValuePair<int, float>> coreSorted = new List<KeyValuePair<int, float>>(64);
         float nominalMHz;
 
-        long netRx = -1, netTx = -1;
+        // アダプターごと (NetworkInterface.Id) の前回の累計バイト数。切替や追加のときに巨大な差分が出ないようにする
+        sealed class NetPrev { public long Rx, Tx; public bool Seen; }
+        readonly Dictionary<string, NetPrev> netPrev = new Dictionary<string, NetPrev>();
+        bool netPrimed;
 
         Process smi;
         IntPtr job = IntPtr.Zero;
         DateTime smiRetryAt = DateTime.MinValue;
+        int smiRetrySec = 30;          // 失敗するたびに倍にする (最大 10 分)
+        bool smiGaveUp, smiFailLogged; // nvidia-smi が無い環境では一度だけ記録して以後は起動しない
 
         IntPtr procBuf = IntPtr.Zero;
         int procBufLen;
@@ -151,6 +159,12 @@ namespace DeskMeter
             if (thread != null) thread.Join(1500);
         }
 
+        // 待ち時間を打ち切って次の計測をすぐ始める (更新間隔の変更時など)
+        public void Poke()
+        {
+            wake.Set();
+        }
+
         public void RefreshWeatherNow()
         {
             lock (S) { S.Weather = null; S.WeatherError = null; }
@@ -161,31 +175,54 @@ namespace DeskMeter
 
         void Loop()
         {
-            Init();
+            try { Init(); }
+            catch (Exception ex) { Log.Write("init", ex); }
             var sw = Stopwatch.StartNew();
-            long last = sw.ElapsedMilliseconds;
-            long nextProc = 0, nextDrives = 0, nextPing = 2000;
+            long lastNet = sw.ElapsedMilliseconds;
+            long nextProc = 0, nextDrives = 0, nextPing = 2000, nextNet = 0;
+            var handles = new WaitHandle[] { stopEvent, wake };
             while (!stopEvent.WaitOne(0))
             {
-                int interval = Math.Max(250, Math.Min(10000, cfg.IntervalMs));
-                long t0 = sw.ElapsedMilliseconds;
-                double dt = (t0 - last) / 1000.0;
-                last = t0;
+                try
+                {
+                    if (Paused)
+                    {
+                        // 隠している間・ロック中は計測しない。500ms ごとに様子を見る
+                        if (WaitHandle.WaitAny(handles, 500) == 0) break;
+                        continue;
+                    }
+                    int interval = Math.Max(250, Math.Min(10000, cfg.IntervalMs));
+                    long t0 = sw.ElapsedMilliseconds;
 
-                Safe("cpu", SampleCpu);
-                Safe("mem", SampleMemory);
-                Safe("disk", SampleDiskIo);
-                try { SampleNet(dt); } catch (Exception ex) { Log.Write("net", ex); }
-                Safe("gpu", WatchSmi);
-                // 重めの処理は間隔が短くても一定時間ごとにしか行わない
-                if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
-                if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(5000, interval); }
-                if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
-                if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
+                    Safe("cpu", SampleCpu);
+                    Safe("mem", SampleMemory);
+                    Safe("disk", SampleDiskIo);
+                    // ネットワークは間隔が短くても 1 秒に 1 回まで (dt は前回のネット計測からの経過秒)
+                    if (t0 >= nextNet)
+                    {
+                        double dt = (t0 - lastNet) / 1000.0;
+                        lastNet = t0;
+                        try { SampleNet(dt); } catch (Exception ex) { Log.Write("net", ex); }
+                        nextNet = t0 + Math.Max(1000, interval);
+                    }
+                    Safe("gpu", WatchSmi);
+                    // 重めの処理は間隔が短くても一定時間ごとにしか行わない
+                    if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
+                    if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(5000, interval); }
+                    if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
+                    if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
 
-                int wait = interval - (int)(sw.ElapsedMilliseconds - t0);
-                if (wait < 50) wait = 50;
-                if (stopEvent.WaitOne(wait)) break;
+                    int wait = interval - (int)(sw.ElapsedMilliseconds - t0);
+                    if (wait < 50) wait = 50;
+                    // 停止で抜ける。Poke() で起こされたら待ちを打ち切って次の計測へ
+                    if (WaitHandle.WaitAny(handles, wait) == 0) break;
+                }
+                catch (Exception ex)
+                {
+                    // 計測ループ自体は落とさない。少し待って続ける
+                    Log.Write("loop", ex);
+                    if (stopEvent.WaitOne(1000)) break;
+                }
             }
             pdh.Dispose();
         }
@@ -352,37 +389,60 @@ namespace DeskMeter
 
         void SampleNet(double dt)
         {
-            long rx = 0, tx = 0;
+            long rx = 0, tx = 0, dRx = 0, dTx = 0;
             string ip = null;
+            foreach (NetPrev v in netPrev.Values) v.Seen = false;
             foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
             {
-                if (ni.OperationalStatus != OperationalStatus.Up) continue;
-                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
-                IPInterfaceProperties props = ni.GetIPProperties();
-                if (props.GatewayAddresses.Count == 0) continue;   // 仮想スイッチなど外に出ないアダプターは除外
-                IPv4InterfaceStatistics st = ni.GetIPv4Statistics();
-                rx += st.BytesReceived;
-                tx += st.BytesSent;
-                if (ip == null)
+                try
                 {
-                    foreach (UnicastIPAddressInformation u in props.UnicastAddresses)
+                    if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+                    IPInterfaceProperties props = ni.GetIPProperties();
+                    if (props.GatewayAddresses.Count == 0) continue;   // 仮想スイッチなど外に出ないアダプターは除外
+                    IPInterfaceStatistics st = ni.GetIPStatistics();   // IPv4 の無いアダプターでも例外にならない
+                    long r = st.BytesReceived, t = st.BytesSent;
+                    rx += r;
+                    tx += t;
+                    // 差分はアダプター単位で取る。新しく現れたアダプターは今回は差分なし (次回から)
+                    NetPrev prev;
+                    if (netPrev.TryGetValue(ni.Id, out prev))
                     {
-                        if (u.Address.AddressFamily == AddressFamily.InterNetwork) { ip = u.Address.ToString(); break; }
+                        if (r >= prev.Rx && t >= prev.Tx) { dRx += r - prev.Rx; dTx += t - prev.Tx; }
+                        prev.Rx = r; prev.Tx = t; prev.Seen = true;
+                    }
+                    else
+                    {
+                        prev = new NetPrev();
+                        prev.Rx = r; prev.Tx = t; prev.Seen = true;
+                        netPrev[ni.Id] = prev;
+                    }
+                    if (ip == null)
+                    {
+                        foreach (UnicastIPAddressInformation u in props.UnicastAddresses)
+                        {
+                            if (u.Address.AddressFamily == AddressFamily.InterNetwork) { ip = u.Address.ToString(); break; }
+                        }
                     }
                 }
+                catch (Exception ex) { Log.Write("net." + ni.Name, ex); }   // 1 つのアダプターで失敗しても他は数える
             }
+            // 消えたアダプターは忘れる (戻ってきたときに巨大な差分を出さないため)
+            var gone = new List<string>();
+            foreach (KeyValuePair<string, NetPrev> kv in netPrev) if (!kv.Value.Seen) gone.Add(kv.Key);
+            foreach (string id in gone) netPrev.Remove(id);
 
             lock (S)
             {
                 double down = 0, up = 0;
-                if (netRx >= 0 && rx >= netRx && tx >= netTx && dt > 0.05)
+                if (netPrimed && dt > 0.05)
                 {
-                    down = (rx - netRx) / dt;
-                    up = (tx - netTx) / dt;
-                    S.SessDown += rx - netRx;
-                    S.SessUp += tx - netTx;
+                    down = dRx / dt;
+                    up = dTx / dt;
+                    S.SessDown += dRx;
+                    S.SessUp += dTx;
                 }
-                netRx = rx; netTx = tx;
+                netPrimed = true;
                 S.DownBps = down; S.UpBps = up;
                 if (down > S.PeakBps) S.PeakBps = down;
                 if (up > S.PeakBps) S.PeakBps = up;
@@ -502,6 +562,15 @@ namespace DeskMeter
 
         void StartSmi()
         {
+            if (smiGaveUp) return;
+            // 古いプロセスオブジェクトは置き換える前に片付ける
+            Process old = smi;
+            smi = null;
+            if (old != null)
+            {
+                try { if (!old.HasExited) old.Kill(); } catch { }
+                try { old.Dispose(); } catch { }
+            }
             try
             {
                 var psi = new ProcessStartInfo("nvidia-smi.exe",
@@ -530,19 +599,35 @@ namespace DeskMeter
                 catch { }
                 p.BeginOutputReadLine();
                 smi = p;
+                smiRetrySec = 30;
             }
             catch (Exception ex)
             {
                 smi = null;
-                Log.Write("nvidia-smi", ex);
+                var w32 = ex as System.ComponentModel.Win32Exception;
+                if (w32 != null && w32.NativeErrorCode == 2)
+                {
+                    // nvidia-smi.exe が無い (NVIDIA 以外の環境)。一度だけ記録して以後は試さない
+                    smiGaveUp = true;
+                    Log.Write("nvidia-smi (not found, GPU panel disabled)", ex);
+                    return;
+                }
+                // それ以外の失敗は記録は初回だけにして、再試行の間隔を倍々で伸ばす (最大 10 分)
+                if (!smiFailLogged) { smiFailLogged = true; Log.Write("nvidia-smi", ex); }
+                smiRetryAt = DateTime.Now.AddSeconds(smiRetrySec);
+                smiRetrySec = Math.Min(600, smiRetrySec * 2);
+                return;
             }
-            smiRetryAt = DateTime.Now.AddSeconds(30);
+            smiRetryAt = DateTime.Now.AddSeconds(smiRetrySec);
         }
 
         void WatchSmi()
         {
-            bool dead = smi == null || smi.HasExited;
-            if (dead && DateTime.Now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
+            Process p = smi;   // UI スレッドの KillSmi と競合しないようローカルにコピーしてから見る
+            bool dead;
+            try { dead = p == null || p.HasExited; }
+            catch { dead = true; }
+            if (dead && !smiGaveUp && DateTime.Now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
             lock (S)
             {
                 if (S.GpuOk && (DateTime.Now - S.GpuStamp).TotalSeconds > 6) S.GpuOk = false;
@@ -558,7 +643,11 @@ namespace DeskMeter
             {
                 Process p = smi;
                 smi = null;
-                if (p != null && !p.HasExited) p.Kill();
+                if (p != null)
+                {
+                    try { if (!p.HasExited) p.Kill(); } catch { }
+                    p.Dispose();
+                }
             }
             catch { }
         }
@@ -633,6 +722,14 @@ namespace DeskMeter
                 json = sr.ReadToEnd();
 
             var root = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json);
+            // Open-Meteo はエラー時に {"error":true,"reason":"..."} を返す
+            object err;
+            if (root.TryGetValue("error", out err) && err is bool && (bool)err)
+            {
+                object reason;
+                string msg = root.TryGetValue("reason", out reason) && reason != null ? Convert.ToString(reason) : "Open-Meteo error";
+                throw new InvalidOperationException(msg);
+            }
             var cur = (Dictionary<string, object>)root["current"];
             var daily = (Dictionary<string, object>)root["daily"];
 

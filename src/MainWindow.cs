@@ -79,6 +79,7 @@ namespace DeskMeter
         IntPtr hwnd;
         bool showDesktop;
         bool dragging;
+        bool sessionLocked;
         Native.WinEventProc winEventProc;   // GC されないよう保持
         IntPtr winEventHook;
 
@@ -144,6 +145,7 @@ namespace DeskMeter
                 BuildTray();
                 SyncAutoStartPath();
                 SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+                SystemEvents.SessionSwitch += OnSessionSwitch;
             }
             else
             {
@@ -335,16 +337,29 @@ namespace DeskMeter
             showDesktop = false;
             Topmost = cfg.Mode == "topmost";
             if (hwnd == IntPtr.Zero) return;
-            if (cfg.Mode == "desktop")
-                Native.SetWindowPos(hwnd, Native.HWND_BOTTOM, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            if (cfg.Mode != "topmost")
+            {
+                // Win+D 対策で一時的に最前面にした WS_EX_TOPMOST が残らないよう、必ず解除してから
+                Native.SetWindowPos(hwnd, Native.HWND_NOTOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+                if (cfg.Mode == "desktop")
+                    Native.SetWindowPos(hwnd, Native.HWND_BOTTOM, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            }
         }
 
+        // クリック透過は配置編集中には一時的に外す (そうしないとパネルをつかめない)
         void ApplyClickThrough()
         {
             if (hwnd == IntPtr.Zero) return;
             long ex = Native.GetWindowLongPtr(hwnd, Native.GWL_EXSTYLE).ToInt64();
-            ex = cfg.ClickThrough && snapshotPath == null ? ex | Native.WS_EX_TRANSPARENT : ex & ~Native.WS_EX_TRANSPARENT;
+            bool through = cfg.ClickThrough && snapshotPath == null && !view.EditMode;
+            ex = through ? ex | Native.WS_EX_TRANSPARENT : ex & ~Native.WS_EX_TRANSPARENT;
             Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, new IntPtr(ex));
+        }
+
+        void SetEditMode(bool on)
+        {
+            view.EditMode = on;
+            ApplyClickThrough();
         }
 
         // ---------------------------------------------------------------- menu / tray
@@ -406,7 +421,7 @@ namespace DeskMeter
             foreach (int ms in new[] { 250, 500, 1000, 2000, 3000, 5000, 10000 })
             {
                 int v = ms;
-                var mi = Item((v / 1000.0).ToString("0.##") + " 秒", delegate { cfg.IntervalMs = v; ScheduleNextTick(); cfg.Save(); });
+                var mi = Item((v / 1000.0).ToString("0.##") + " 秒", delegate { cfg.IntervalMs = v; ScheduleNextTick(); sampler.Poke(); cfg.Save(); });
                 mi.Tag = v;
                 miInterval.DropDownItems.Add(mi);
             }
@@ -424,7 +439,7 @@ namespace DeskMeter
             AddToggle(miPanels, "コアを2列で表示 (高さを節約)", "CompactCores");
             menu.Items.Add(miPanels);
 
-            miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { view.EditMode = !view.EditMode; });
+            miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
             menu.Items.Add(miEdit);
             menu.Items.Add(Item("配置をリセット (標準の3列)", delegate { cfg.Layout = Settings.DefaultLayout(); view.Relayout(); cfg.Save(); }));
 
@@ -506,23 +521,54 @@ namespace DeskMeter
             parent.DropDownItems.Add(mi);
         }
 
+        // 隠している間は再描画も計測も止める (省電力)
         void ToggleVisible()
         {
-            if (IsVisible) Hide();
+            if (IsVisible)
+            {
+                Hide();
+                timer.Stop();
+                UpdatePaused();
+            }
             else
             {
                 Show();
                 ApplyMode();
+                UpdatePaused();
+                ScheduleNextTick();
+                timer.Start();
+                sampler.Poke();
             }
+        }
+
+        // 隠している間とセッションロック中は計測をスキップする
+        void UpdatePaused()
+        {
+            sampler.Paused = !IsVisible || sessionLocked;
+        }
+
+        void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+        {
+            if (e.Reason == SessionSwitchReason.SessionLock) sessionLocked = true;
+            else if (e.Reason == SessionSwitchReason.SessionUnlock) sessionLocked = false;
+            else return;
+            UpdatePaused();
+            if (!sessionLocked) sampler.Poke();
         }
 
         void ReloadSettings()
         {
-            cfg.Reload();
+            if (!cfg.Reload())
+            {
+                // 壊れたファイルは読まずに現在の設定のまま続ける (Save で初期化しないため)
+                if (tray != null) tray.ShowBalloonTip(5000, AppName, "settings.json を読み込めませんでした (JSON の構文エラー)。設定は変更していません。", WF.ToolTipIcon.Warning);
+                return;
+            }
             view.LayoutTransform = new ScaleTransform(cfg.Scale, cfg.Scale);
             view.ApplySkin();
             view.Relayout();
             ScheduleNextTick();
+            sampler.Poke();
             RestorePosition();
             ApplyMode();
             ApplyClickThrough();
@@ -678,7 +724,11 @@ namespace DeskMeter
         {
             timer.Stop();
             displayChangeTimer.Stop();
-            if (snapshotPath == null) SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+            if (snapshotPath == null)
+            {
+                SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+                SystemEvents.SessionSwitch -= OnSessionSwitch;
+            }
             if (winEventHook != IntPtr.Zero) Native.UnhookWinEvent(winEventHook);
             if (tray != null)
             {

@@ -80,8 +80,19 @@ namespace DeskMeter
                 editMode = value;
                 dragId = null;
                 dragging = false;
+                if (IsMouseCaptured) ReleaseMouseCapture();
                 InvalidateVisual();
             }
+        }
+
+        // ドラッグ中に捕捉を失ったら (他のウィンドウがマウスを取った等) ドラッグを中断する
+        protected override void OnLostMouseCapture(MouseEventArgs e)
+        {
+            base.OnLostMouseCapture(e);
+            if (dragId == null && !dragging) return;
+            dragId = null;
+            dragging = false;
+            InvalidateVisual();
         }
 
         PanelBox BoxAt(Point p)
@@ -136,8 +147,10 @@ namespace DeskMeter
         void ComputeDrop(Point p)
         {
             int cols = cfg.Layout.Count;
-            if (p.X < Gap * 0.75) { dropCol = -1; dropIndex = 0; return; }
-            if (p.X > contentW - Gap * 0.75) { dropCol = cols; dropIndex = 0; return; }
+            // 列数が上限なら新しい列は作らず、最寄りの列へ入れる
+            bool canAdd = cols < Settings.MaxColumns;
+            if (canAdd && p.X < Gap * 0.75) { dropCol = -1; dropIndex = 0; return; }
+            if (canAdd && p.X > contentW - Gap * 0.75) { dropCol = cols; dropIndex = 0; return; }
             dropCol = Math.Max(0, Math.Min(cols - 1, (int)((p.X - Gap) / (ColW + Gap))));
             dropIndex = 0;
             foreach (PanelBox b in boxes)
@@ -416,7 +429,9 @@ namespace DeskMeter
                 foreach (Hist h in series) max = Math.Max(max, h.Max());
                 max = Math.Max(max * 1.15, 1024);
             }
-            dc.PushClip(new RectangleGeometry(r));
+            var clip = new RectangleGeometry(r);
+            clip.Freeze();
+            dc.PushClip(clip);
             for (int s = 0; s < series.Length; s++)
             {
                 Hist h = series[s];
@@ -467,6 +482,7 @@ namespace DeskMeter
 
         static string Bytes(double b)
         {
+            if (double.IsNaN(b)) return "--";   // nvidia-smi が [N/A] を返す環境など
             int i = 0;
             while (b >= 1024 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
             return (i == 0 ? b.ToString("0", Inv) : Sig(b)) + " " + ByteUnits[i];
@@ -474,6 +490,7 @@ namespace DeskMeter
 
         static string BytesShort(double b)
         {
+            if (double.IsNaN(b)) return "--";
             int i = 0;
             while (b >= 1024 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
             return b.ToString(i == 0 ? "0" : "0.0", Inv) + " " + ByteUnits[i];
@@ -481,6 +498,7 @@ namespace DeskMeter
 
         static string Bits(double bytesPerSec)
         {
+            if (double.IsNaN(bytesPerSec)) return "--";
             string[] u = { "bit/s", "kbit/s", "Mbit/s", "Gbit/s" };
             double v = bytesPerSec * 8;
             int i = 0;
