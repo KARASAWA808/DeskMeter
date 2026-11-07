@@ -1,0 +1,49 @@
+{
+  "_comment": "DeskMeter のユーザー定義スキンの例 (青緑系)。書き方は help\\custom-skin.html を参照。このファイルをコピーして別名で保存すると、右クリックメニューの「スキン」に並びます。",
+
+  "FontFamily": "Segoe UI, Yu Gothic UI, Meiryo UI",
+  "CornerRadius": 10,
+  "Background": "#051A20",
+  "BorderColor": "#1F8A9A",
+  "BorderWidth": 1,
+  "Scanlines": false,
+
+  "Title": "#E8F6F8",
+  "Text1": "#FFD166",
+  "Text2": "#4FD1C5",
+  "Accent1": "#2EC4B6",
+  "Accent2": "#F4A261",
+  "Lime": "#9BE564",
+  "Warn": "#F4A261",
+  "Danger": "#EF476F",
+  "Muted": "#8FB3BA",
+  "Dim": "#4A6B72",
+  "Magenta": "#C77DFF",
+  "Violet": "#8E9BFF",
+  "Blue": "#3A86FF",
+
+  "Track": "#0F3A44",
+  "GraphBg": "#06222A",
+  "Separator": "#1F8A9A",
+  "GraphBorder": "#1E4A54",
+  "GraphGrid": "#0E3038",
+
+  "CalHead": "#0F4D57",
+  "Today": "#F4A261",
+  "CalSun": "#EF476F",
+  "CalSat": "#3A86FF",
+  "DateTile": "#2EC4B6,#118AB2",
+  "DateTileText": "#04262C",
+
+  "Sun": "#FFD166",
+  "CloudLight": "#CFE3E8",
+  "CloudDark": "#7FA0A8",
+  "Rain": "#4FD1C5",
+  "Snow": "#E8F6F8",
+  "MoonLit": "#E8F6F8",
+  "MoonDark": "#123840",
+
+  "Palette": ["#2EC4B6", "#4FD1C5", "#FFD166", "#3A86FF", "#9BE564", "#F4A261", "#8E9BFF",
+              "#06D6A0", "#48CAE4", "#C77DFF", "#EF476F", "#90E0EF", "#B8F2E6", "#FFB703"],
+  "Tiles": ["#118AB2", "#0B6E7A", "#1B9AAA", "#2F5D6B", "#4C6EF5", "#0A9396"]
+}

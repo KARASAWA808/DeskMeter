@@ -113,6 +113,10 @@ namespace DeskMeter
 
         public Weather Weather;
         public string WeatherError;
+
+        // HWiNFO64 の共有メモリから (NaN = 不明)。HwInfoOk = false なら HWiNFO 未起動か Shared Memory Support がオフ
+        public bool HwInfoOk;
+        public float CpuTemp = float.NaN, CpuPowerW = float.NaN, CpuFanRpm = float.NaN;
     }
 
     sealed class Sampler : IDisposable
@@ -143,6 +147,8 @@ namespace DeskMeter
         DateTime smiRetryAt = DateTime.MinValue;
         int smiRetrySec = 30;          // 失敗するたびに倍にする (最大 10 分)
         bool smiGaveUp, smiFailLogged; // nvidia-smi が無い環境では一度だけ記録して以後は起動しない
+
+        readonly HwInfo hwinfo = new HwInfo();
 
         IntPtr procBuf = IntPtr.Zero;
         int procBufLen;
@@ -191,7 +197,7 @@ namespace DeskMeter
             catch (Exception ex) { Log.Write("init", ex); }
             var sw = Stopwatch.StartNew();
             long lastNet = sw.ElapsedMilliseconds;
-            long nextProc = 0, nextDrives = 0, nextPing = 2000, nextNet = 0;
+            long nextProc = 0, nextDrives = 0, nextPing = 2000, nextNet = 0, nextHw = 0;
             var handles = new WaitHandle[] { stopEvent, wake };
             while (!stopEvent.WaitOne(0))
             {
@@ -225,6 +231,7 @@ namespace DeskMeter
                     if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
                     if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(5000, interval); }
                     if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
+                    if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
                     if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
 
                     int wait = interval - (int)(sw.ElapsedMilliseconds - t0);
@@ -254,16 +261,30 @@ namespace DeskMeter
             histSeconds = secs;
             histInterval = interval;
             int cap = Math.Max(2, Math.Min(7200, secs * 1000 / interval));
-            // プロセス一覧は最短でも 2 秒ごとにしか取らないので、その間隔で同じ時間幅になる本数にする
+            // プロセス一覧は最短でも 2 秒、ネットワークは 1 秒ごとにしか取らないので、その間隔で同じ時間幅になる本数にする
             int procCap = Math.Max(2, secs * 1000 / Math.Max(2000, interval));
+            int netCap = Math.Max(2, secs * 1000 / Math.Max(1000, interval));
             lock (S)
             {
                 S.HistCap = cap;
                 S.GpuUtilHist = new Hist(cap); S.GpuTempHist = new Hist(cap);
-                S.UpHist = new Hist(cap); S.DownHist = new Hist(cap);
+                S.UpHist = new Hist(netCap); S.DownHist = new Hist(netCap);
                 S.ReadHist = new Hist(cap); S.WriteHist = new Hist(cap);
                 S.ProcHist = new Hist(procCap);
                 for (int i = 0; i < S.CoreHist.Length; i++) S.CoreHist[i] = new Hist(cap);
+            }
+        }
+
+        // HWiNFO64 の共有メモリ (無ければ HwInfo 側で 60 秒ごとに再試行)
+        void SampleHwInfo()
+        {
+            hwinfo.Poll();
+            lock (S)
+            {
+                S.HwInfoOk = hwinfo.Ok;
+                S.CpuTemp = hwinfo.CpuTemp;
+                S.CpuPowerW = hwinfo.CpuPowerW;
+                S.CpuFanRpm = hwinfo.CpuFanRpm;
             }
         }
 

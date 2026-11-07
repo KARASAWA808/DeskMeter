@@ -24,7 +24,7 @@ namespace DeskMeter
         public int HistorySeconds = 120;
         // 表示/非表示のグローバルホットキー (例 "Ctrl+Alt+D")。空文字で無効
         public string Hotkey = "";
-        // スキン名: Classic / Cyberpunk / Retro / Light
+        // スキン名: Classic / Cyberpunk / Retro / Light、または skins\*.json のファイル名 (拡張子なし)
         public string Skin = "Classic";
         // 表示倍率 (1.0 = 100%)
         public double Scale = 1.0;

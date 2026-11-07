@@ -391,18 +391,33 @@ namespace DeskMeter
             return mi;
         }
 
+        // 「スキン」の中身: 組み込み、区切り線、skins\*.json の順
+        void FillSkinMenu()
+        {
+            miSkin.DropDownItems.Clear();
+            foreach (string name in Skin.BuiltIn) miSkin.DropDownItems.Add(SkinItem(name));
+            string[] files = Skin.FileNames();
+            if (files.Length > 0)
+            {
+                miSkin.DropDownItems.Add(new WF.ToolStripSeparator());
+                foreach (string name in files) miSkin.DropDownItems.Add(SkinItem(name));
+            }
+        }
+
+        WF.ToolStripMenuItem SkinItem(string name)
+        {
+            string n = name;
+            var mi = Item(Skin.DisplayName(n), delegate { cfg.Skin = n; view.ApplySkin(); cfg.Save(); });
+            mi.Tag = n;
+            return mi;
+        }
+
         void BuildMenu()
         {
             menu = new WF.ContextMenuStrip();
 
             miSkin = new WF.ToolStripMenuItem("スキン");
-            foreach (string name in Skin.Names)
-            {
-                string n = name;
-                var mi = Item(Skin.DisplayName(n), delegate { cfg.Skin = n; view.ApplySkin(); cfg.Save(); });
-                mi.Tag = n;
-                miSkin.DropDownItems.Add(mi);
-            }
+            FillSkinMenu();
             menu.Items.Add(miSkin);
 
             var mode = new WF.ToolStripMenuItem("表示モード");
@@ -504,6 +519,8 @@ namespace DeskMeter
             menu.Items.Add(Item("設定ファイルを再読み込み", ReloadSettings));
             var help = new WF.ToolStripMenuItem("ヘルプ");
             help.DropDownItems.Add(Item("天気の表示場所を変更する手順", delegate { OpenHelp("weather-location.html"); }));
+            help.DropDownItems.Add(Item("スキンの作り方 (skins フォルダー)", delegate { OpenHelp("custom-skin.html"); }));
+            help.DropDownItems.Add(Item("CPU 温度・電力・ファンを表示する (HWiNFO 連携)", delegate { OpenHelp("hwinfo.html"); }));
             help.DropDownItems.Add(Item("ヘルプのフォルダーを開く", delegate { OpenHelp(null); }));
             menu.Items.Add(help);
             menu.Items.Add(new WF.ToolStripSeparator());
@@ -520,7 +537,12 @@ namespace DeskMeter
                     else if (mi.Tag is string) mi.Checked = cfg.HasPanel((string)mi.Tag);
                 }
                 miEdit.Checked = view.EditMode;
-                foreach (WF.ToolStripMenuItem mi in miSkin.DropDownItems) mi.Checked = (string)mi.Tag == cfg.Skin;
+                FillSkinMenu();   // skins フォルダーを見直す (追加・削除をメニューに反映)
+                foreach (WF.ToolStripItem it in miSkin.DropDownItems)
+                {
+                    var mi = it as WF.ToolStripMenuItem;
+                    if (mi != null) mi.Checked = (string)mi.Tag == cfg.Skin;
+                }
                 foreach (WF.ToolStripMenuItem mi in miInterval.DropDownItems) mi.Checked = (int)mi.Tag == cfg.IntervalMs;
                 foreach (WF.ToolStripMenuItem mi in miHistory.DropDownItems) mi.Checked = (int)mi.Tag == cfg.HistorySeconds;
                 foreach (WF.ToolStripMenuItem mi in miHotkey.DropDownItems) mi.Checked = string.Equals((string)mi.Tag, cfg.Hotkey, StringComparison.OrdinalIgnoreCase);

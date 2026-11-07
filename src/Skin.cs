@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Media;
 
@@ -57,16 +60,55 @@ namespace DeskMeter
             return r;
         }
 
-        public static readonly string[] Names = { "Classic", "Cyberpunk", "Retro", "Light" };
+        public static readonly string[] BuiltIn = { "Classic", "Cyberpunk", "Retro", "Light" };
+
+        // 組み込み + skins フォルダーのスキン名 (呼ぶたびにフォルダーを見直す)
+        public static string[] Names
+        {
+            get
+            {
+                var all = new List<string>(BuiltIn);
+                all.AddRange(FileNames());
+                return all.ToArray();
+            }
+        }
+
+        public static string SkinDir { get { return Path.Combine(AppPaths.Dir, "skins"); } }
+
+        // skins\*.json のファイル名 (拡張子なし) をスキン名として並べる。組み込みと同名のものは除く
+        public static string[] FileNames()
+        {
+            var names = new List<string>();
+            try
+            {
+                if (Directory.Exists(SkinDir))
+                    foreach (string f in Directory.GetFiles(SkinDir, "*.json"))
+                    {
+                        string n = Path.GetFileNameWithoutExtension(f);
+                        if (string.IsNullOrEmpty(n) || IsBuiltIn(n)) continue;
+                        names.Add(n);
+                    }
+            }
+            catch (Exception ex) { Log.Write("Skin.FileNames", ex); }
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names.ToArray();
+        }
+
+        static bool IsBuiltIn(string name)
+        {
+            foreach (string b in BuiltIn) if (string.Equals(b, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
 
         public static string DisplayName(string name)
         {
             switch (name)
             {
+                case "Classic": return "Classic";
                 case "Cyberpunk": return "Cyberpunk (ネオン)";
                 case "Retro": return "Retro (アンバーCRT)";
                 case "Light": return "Light (明るい壁紙向け)";
-                default: return "Classic";
+                default: return name;
             }
         }
 
@@ -77,7 +119,139 @@ namespace DeskMeter
                 case "Cyberpunk": return Cyberpunk();
                 case "Retro": return Retro();
                 case "Light": return Light();
-                default: return Classic();
+                case "Classic": return Classic();
+            }
+            // 組み込みに無ければ skins\<名前>.json。読めなければ Classic
+            if (!string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
+            {
+                string path = Path.Combine(SkinDir, name + ".json");
+                if (File.Exists(path))
+                {
+                    Skin s = FromFile(path);
+                    if (s != null) return s;
+                }
+            }
+            return Classic();
+        }
+
+        // ---------------------------------------------------------------- ユーザー定義スキン (skins\*.json)
+
+        // JSON の各項目。色は "#RRGGBB" (または "#AARRGGBB")。未指定 (null) の項目は Classic の値になる
+        public class SkinFile
+        {
+            public string FontFamily;
+            public double? CornerRadius;
+            public string Background;
+            public string BorderColor;      // 無指定なら枠なし
+            public double? BorderWidth;     // 既定 1
+            public bool? Scanlines;
+            public string TileOverride;     // 見出しアイコンの背景を全パネル共通にする色
+            public string Title, Text1, Text2, Accent1, Accent2, Lime, Warn, Danger, Muted, Dim,
+                Magenta, Violet, Blue, Track, GraphBg, Separator, GraphBorder, GraphGrid,
+                CalHead, Today, CalSun, CalSat, DateTile, DateTileText,
+                Sun, CloudLight, CloudDark, Rain, Snow, MoonLit, MoonDark;
+            public string[] Palette;        // コア / プロセスの色 (1 つ以上)
+            public string[] Tiles;          // 見出しアイコンの背景 6 色: GPU, CPU, Network, Drives, TopCpu, TopMemory
+        }
+
+        // 壊れた JSON は deskmeter.log に書いて null を返す。色の書き間違いは項目ごとに Classic の値で代用する
+        public static Skin FromFile(string path)
+        {
+            SkinFile f;
+            try
+            {
+                f = new JavaScriptSerializer().Deserialize<SkinFile>(File.ReadAllText(path, Encoding.UTF8));
+                if (f == null) throw new FormatException("JSON が空です");
+            }
+            catch (Exception ex)
+            {
+                Log.Write("Skin " + Path.GetFileName(path), ex);
+                return null;
+            }
+            try
+            {
+                var ctx = new FileCtx(Path.GetFileName(path));
+                Skin s = Classic();
+                s.Name = Path.GetFileNameWithoutExtension(path);
+                if (!string.IsNullOrWhiteSpace(f.FontFamily)) s.FontFamily = f.FontFamily.Trim();
+                if (f.CornerRadius.HasValue) s.CornerRadius = Math.Max(0, Math.Min(40, f.CornerRadius.Value));
+                s.Background = ctx.Color("Background", f.Background, s.Background);
+                if (!string.IsNullOrEmpty(f.BorderColor))
+                {
+                    Brush bb = ctx.Brush("BorderColor", f.BorderColor, null);
+                    if (bb != null) s.Border = P(bb, f.BorderWidth.HasValue ? Math.Max(0.5, Math.Min(6, f.BorderWidth.Value)) : 1);
+                }
+                if (f.Scanlines.HasValue) s.Scanlines = f.Scanlines.Value;
+                s.TileOverride = ctx.Brush("TileOverride", f.TileOverride, null);
+                s.Title = ctx.Brush("Title", f.Title, s.Title); s.Text1 = ctx.Brush("Text1", f.Text1, s.Text1); s.Text2 = ctx.Brush("Text2", f.Text2, s.Text2);
+                s.Accent1 = ctx.Brush("Accent1", f.Accent1, s.Accent1); s.Accent2 = ctx.Brush("Accent2", f.Accent2, s.Accent2); s.Lime = ctx.Brush("Lime", f.Lime, s.Lime);
+                s.Warn = ctx.Brush("Warn", f.Warn, s.Warn); s.Danger = ctx.Brush("Danger", f.Danger, s.Danger);
+                s.Muted = ctx.Brush("Muted", f.Muted, s.Muted); s.Dim = ctx.Brush("Dim", f.Dim, s.Dim);
+                s.Magenta = ctx.Brush("Magenta", f.Magenta, s.Magenta); s.Violet = ctx.Brush("Violet", f.Violet, s.Violet); s.Blue = ctx.Brush("Blue", f.Blue, s.Blue);
+                s.Track = ctx.Brush("Track", f.Track, s.Track); s.GraphBg = ctx.Brush("GraphBg", f.GraphBg, s.GraphBg); s.Separator = ctx.Brush("Separator", f.Separator, s.Separator);
+                Brush gb = ctx.Brush("GraphBorder", f.GraphBorder, null); if (gb != null) s.GraphBorder = P(gb, 1);
+                Brush gg = ctx.Brush("GraphGrid", f.GraphGrid, null); if (gg != null) s.GraphGrid = P(gg, 1);
+                s.CalHead = ctx.Brush("CalHead", f.CalHead, s.CalHead); s.Today = ctx.Brush("Today", f.Today, s.Today);
+                s.CalSun = ctx.Brush("CalSun", f.CalSun, s.CalSun); s.CalSat = ctx.Brush("CalSat", f.CalSat, s.CalSat);
+                s.DateTile = ctx.Brush("DateTile", f.DateTile, s.DateTile); s.DateTileText = ctx.Brush("DateTileText", f.DateTileText, s.DateTileText);
+                s.Sun = ctx.Brush("Sun", f.Sun, s.Sun); s.CloudLight = ctx.Brush("CloudLight", f.CloudLight, s.CloudLight); s.CloudDark = ctx.Brush("CloudDark", f.CloudDark, s.CloudDark);
+                s.Rain = ctx.Brush("Rain", f.Rain, s.Rain); s.Snow = ctx.Brush("Snow", f.Snow, s.Snow);
+                s.MoonLit = ctx.Brush("MoonLit", f.MoonLit, s.MoonLit); s.MoonDark = ctx.Brush("MoonDark", f.MoonDark, s.MoonDark);
+                Brush[] pal = ctx.Brushes("Palette", f.Palette, 0);
+                if (pal != null) s.Palette = pal;
+                Brush[] tiles = ctx.Brushes("Tiles", f.Tiles, 6);
+                if (tiles != null) s.Tiles = tiles;
+                return s;
+            }
+            catch (Exception ex)
+            {
+                Log.Write("Skin " + Path.GetFileName(path), ex);
+                return null;
+            }
+        }
+
+        // 色文字列の変換。失敗したらログに残して既定値を返す
+        sealed class FileCtx
+        {
+            readonly string file;
+            public FileCtx(string file) { this.file = file; }
+
+            public Color Color(string field, string text, Color fallback)
+            {
+                if (string.IsNullOrWhiteSpace(text)) return fallback;
+                try { return Hex(text.Trim()); }
+                catch (Exception ex) { Log.Write("Skin " + file + " " + field + " = " + text, ex); return fallback; }
+            }
+
+            // "#RRGGBB" で単色、"#RRGGBB,#RRGGBB" で上下のグラデーション
+            public Brush Brush(string field, string text, Brush fallback)
+            {
+                if (string.IsNullOrWhiteSpace(text)) return fallback;
+                try
+                {
+                    string[] parts = text.Split(',');
+                    if (parts.Length >= 2) return Gradient(parts[0].Trim(), parts[1].Trim());
+                    return B(text.Trim());
+                }
+                catch (Exception ex) { Log.Write("Skin " + file + " " + field + " = " + text, ex); return fallback; }
+            }
+
+            // 配列。count > 0 ならその個数が必要。ダメなら null (既定のまま)
+            public Brush[] Brushes(string field, string[] items, int count)
+            {
+                if (items == null || items.Length == 0) return null;
+                if (count > 0 && items.Length != count)
+                {
+                    Log.Write("Skin " + file + " " + field, new FormatException(count + " 色必要ですが " + items.Length + " 色です"));
+                    return null;
+                }
+                var r = new Brush[items.Length];
+                for (int i = 0; i < items.Length; i++)
+                {
+                    r[i] = Brush(field + "[" + i + "]", items[i], null);
+                    if (r[i] == null) return null;
+                }
+                return r;
             }
         }
 
