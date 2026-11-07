@@ -1,0 +1,6 @@
+# build output and runtime state
+DeskMeter.exe
+deskmeter.log
+settings.json
+settings.broken*.json
+*.png.tmp

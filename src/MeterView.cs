@@ -1,0 +1,975 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+
+namespace DeskMeter
+{
+    // 全メーターを1つの要素に直接描画する (1秒に1回だけ再描画)
+    sealed class MeterView : FrameworkElement
+    {
+        const double ColW = 220, Gap = 12, RowH = 18, FS = 13, PanelGap = 16;
+
+        readonly MeterState st;
+        readonly Settings cfg;
+        double contentH = 900, contentW;
+        double dip = 1.0;
+
+        static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+        static readonly CultureInfo Ja = new CultureInfo("ja-JP");
+        static readonly Typeface TfIcon = new Typeface(new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
+        // 以下はすべて ApplySkin() で現在のスキンから設定される
+        Skin sk;
+        Typeface TfN, TfB, TfL;
+        Brush White, Yellow, Orange, Cyan, Green, Lime, Red, Gray, Dim, Magenta, Violet, Blue, Track, GraphBg,
+            TileGreen, TileBlue, TileTeal, TileSlate, TilePurple, TileRose, CalHead, TodayOrange, TileGradient,
+            SunBrush, CloudLight, CloudDark, RainBrush, SnowBrush, MoonLit, MoonDark, Scanline;
+        Pen GraphBorder, GridPen, SepPen, PenYellow, PenGreen, SunPen, RainPen, FogPen;
+        Brush[] Palette;
+        Pen[] PalettePens;
+
+        public MeterView(MeterState state, Settings cfg)
+        {
+            st = state;
+            this.cfg = cfg;
+            contentW = WidthFor(cfg);
+            SnapsToDevicePixels = true;
+            ApplySkin();
+        }
+
+        // 列数に応じた幅 (倍率を掛ける前)
+        public static double WidthFor(Settings c)
+        {
+            int cols = c.Layout == null ? 1 : Math.Max(1, c.Layout.Count);
+            return Gap + cols * (ColW + Gap);
+        }
+
+        // 設定変更後にサイズを計算し直す
+        public void Relayout()
+        {
+            contentW = WidthFor(cfg);
+            InvalidateMeasure();
+            InvalidateVisual();
+        }
+
+        // ---------------------------------------------------------------- layout edit mode
+
+        sealed class PanelBox
+        {
+            public string Id;
+            public int Col, Index;
+            public Rect R;
+        }
+
+        readonly List<PanelBox> boxes = new List<PanelBox>();
+        bool editMode;
+        string dragId;
+        Point dragStart, dragPos;
+        bool dragging;
+        int dropCol, dropIndex;      // dropCol = -1: 左に新しい列, Layout.Count: 右に新しい列
+        public event Action LayoutChanged;
+
+        public bool EditMode
+        {
+            get { return editMode; }
+            set
+            {
+                editMode = value;
+                dragId = null;
+                dragging = false;
+                InvalidateVisual();
+            }
+        }
+
+        PanelBox BoxAt(Point p)
+        {
+            foreach (PanelBox b in boxes) if (b.R.Contains(p)) return b;
+            return null;
+        }
+
+        protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+        {
+            base.OnMouseLeftButtonDown(e);
+            if (!editMode) return;
+            PanelBox b = BoxAt(e.GetPosition(this));
+            if (b == null) return;
+            dragId = b.Id;
+            dragStart = dragPos = e.GetPosition(this);
+            dragging = false;
+            CaptureMouse();
+            e.Handled = true;   // ウィンドウ自体のドラッグ移動はさせない
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (dragId == null) return;
+            dragPos = e.GetPosition(this);
+            if (!dragging && (Math.Abs(dragPos.X - dragStart.X) > 4 || Math.Abs(dragPos.Y - dragStart.Y) > 4)) dragging = true;
+            if (dragging)
+            {
+                ComputeDrop(dragPos);
+                InvalidateVisual();
+            }
+        }
+
+        protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+        {
+            base.OnMouseLeftButtonUp(e);
+            if (dragId == null) return;
+            ReleaseMouseCapture();
+            string id = dragId;
+            dragId = null;
+            if (dragging)
+            {
+                dragging = false;
+                ComputeDrop(e.GetPosition(this));
+                ApplyDrop(id);
+            }
+            InvalidateVisual();
+            e.Handled = true;
+        }
+
+        void ComputeDrop(Point p)
+        {
+            int cols = cfg.Layout.Count;
+            if (p.X < Gap * 0.75) { dropCol = -1; dropIndex = 0; return; }
+            if (p.X > contentW - Gap * 0.75) { dropCol = cols; dropIndex = 0; return; }
+            dropCol = Math.Max(0, Math.Min(cols - 1, (int)((p.X - Gap) / (ColW + Gap))));
+            dropIndex = 0;
+            foreach (PanelBox b in boxes)
+            {
+                if (b.Col != dropCol || b.Id == dragId) continue;
+                if (p.Y > b.R.Y + b.R.Height / 2) dropIndex++;
+            }
+        }
+
+        void ApplyDrop(string id)
+        {
+            List<List<string>> layout = cfg.Layout;
+            int src = -1;
+            for (int i = 0; i < layout.Count; i++) if (layout[i].Remove(id)) src = i;
+            if (dropCol < 0) layout.Insert(0, new List<string>(new[] { id }));
+            else if (dropCol >= layout.Count) layout.Add(new List<string>(new[] { id }));
+            else layout[dropCol].Insert(Math.Min(dropIndex, layout[dropCol].Count), id);
+            cfg.CleanLayout();
+            Relayout();
+            if (LayoutChanged != null) LayoutChanged();
+        }
+
+        double DrawPanel(DrawingContext dc, string id, double x, double y)
+        {
+            switch (id)
+            {
+                case "gpu": return DrawGpu(dc, x, y);
+                case "network": return DrawNet(dc, x, y);
+                case "drives": return DrawDrives(dc, x, y);
+                case "topmem": return DrawTopMem(dc, x, y);
+                case "cpu": return DrawCpu(dc, x, y);
+                case "topcpu": return DrawTop(dc, x, y);
+                case "clock": return DrawClock(dc, x, y - 4);
+                case "calendar": return DrawCalendar(dc, x, y);
+                case "datetile": return DrawDateTile(dc, x, y);
+                case "weather": return DrawWeather(dc, x, y);
+                default: return y;
+            }
+        }
+
+        // 編集モードの枠・ラベル・ドロップ位置の表示
+        void DrawEditOverlay(DrawingContext dc)
+        {
+            var outline = new Pen(sk.Text2, 1);
+            outline.DashStyle = DashStyles.Dash;
+            outline.Freeze();
+            var fill = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
+            fill.Freeze();
+            var dragFill = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255));
+            dragFill.Freeze();
+            foreach (PanelBox b in boxes)
+            {
+                Rect r = new Rect(b.R.X - 4, b.R.Y - 4, b.R.Width + 8, b.R.Height + 8);
+                dc.DrawRoundedRectangle(b.Id == dragId ? dragFill : fill, outline, r, 4, 4);
+                FormattedText label = Make(Settings.PanelName(b.Id), 11.5, sk.Title, TfB);
+                dc.DrawRoundedRectangle(sk.Text2, null, new Rect(r.X, r.Y, label.Width + 12, 18), 3, 3);
+                dc.DrawText(Make(Settings.PanelName(b.Id), 11.5, sk.Background.A == 0 ? sk.Title : Brushes.Black, TfB), new Point(r.X + 6, r.Y + 1));
+            }
+            if (dragging && dragId != null)
+            {
+                var marker = new Pen(sk.Accent1, 3);
+                marker.StartLineCap = PenLineCap.Round;
+                marker.EndLineCap = PenLineCap.Round;
+                marker.Freeze();
+                int cols = cfg.Layout.Count;
+                if (dropCol < 0)
+                    dc.DrawLine(marker, new Point(3, 12), new Point(3, contentH - 12));
+                else if (dropCol >= cols)
+                    dc.DrawLine(marker, new Point(contentW - 3, 12), new Point(contentW - 3, contentH - 12));
+                else
+                {
+                    double x = Gap + dropCol * (ColW + Gap), yy = 12 - PanelGap / 2;
+                    int n = 0;
+                    foreach (PanelBox b in boxes)
+                    {
+                        if (b.Col != dropCol || b.Id == dragId) continue;
+                        if (n == dropIndex) { yy = b.R.Y - PanelGap / 2; break; }
+                        yy = b.R.Bottom + PanelGap / 2;
+                        n++;
+                    }
+                    if (yy < 6) yy = 6;
+                    dc.DrawLine(marker, new Point(x, yy), new Point(x + ColW, yy));
+                }
+                // ドラッグ中のパネル名をカーソルに追従させる
+                FormattedText ghost = Make(Settings.PanelName(dragId), 13, Brushes.Black, TfB);
+                var gr = new Rect(dragPos.X + 14, dragPos.Y + 10, ghost.Width + 14, 22);
+                dc.DrawRoundedRectangle(sk.Accent1, null, gr, 4, 4);
+                dc.DrawText(ghost, new Point(gr.X + 7, gr.Y + 2));
+            }
+            // 案内
+            string hint = "配置編集中: パネルをドラッグして移動 / 左右の外側へドロップで新しい列 / 右クリック→「配置の編集」で終了";
+            FormattedText ht = Make(hint, 12, Brushes.White, TfB);
+            ht.MaxTextWidth = Math.Max(60, contentW - 24);
+            var hr = new Rect((contentW - Math.Min(ht.Width, contentW - 24)) / 2 - 8, 4, Math.Min(ht.Width, contentW - 24) + 16, ht.Height + 8);
+            var hb = new SolidColorBrush(Color.FromArgb(220, 30, 30, 36));
+            hb.Freeze();
+            dc.DrawRoundedRectangle(hb, null, hr, 5, 5);
+            dc.DrawText(ht, new Point(hr.X + 8, hr.Y + 4));
+        }
+
+        // 設定のスキン名から配色・フォントを読み込む
+        public void ApplySkin()
+        {
+            sk = Skin.Get(cfg.Skin);
+            var font = new FontFamily(sk.FontFamily);
+            TfN = new Typeface(font, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            TfB = new Typeface(font, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+            TfL = new Typeface(font, FontStyles.Normal, FontWeights.Light, FontStretches.Normal);
+            White = sk.Title; Yellow = sk.Text1; Orange = sk.Accent2; Cyan = sk.Text2; Green = sk.Accent1; Lime = sk.Lime;
+            Red = sk.Danger; Gray = sk.Muted; Dim = sk.Dim; Magenta = sk.Magenta; Violet = sk.Violet; Blue = sk.Blue;
+            Track = sk.Track; GraphBg = sk.GraphBg;
+            Brush[] t = sk.Tiles;
+            Brush o = sk.TileOverride;
+            TileGreen = o ?? t[0]; TileBlue = o ?? t[1]; TileTeal = o ?? t[2]; TileSlate = o ?? t[3]; TilePurple = o ?? t[4]; TileRose = o ?? t[5];
+            CalHead = sk.CalHead; TodayOrange = sk.Today; TileGradient = sk.DateTile;
+            SunBrush = sk.Sun; CloudLight = sk.CloudLight; CloudDark = sk.CloudDark; RainBrush = sk.Rain; SnowBrush = sk.Snow;
+            MoonLit = sk.MoonLit; MoonDark = sk.MoonDark;
+            GraphBorder = sk.GraphBorder; GridPen = sk.GraphGrid; SepPen = Skin.P(sk.Separator, 1);
+            PenYellow = Skin.P(Yellow, 1.3); PenGreen = Skin.P(Green, 1.3);
+            SunPen = Skin.P(SunBrush, 2); RainPen = Skin.P(RainBrush, 2); FogPen = Skin.P(CloudDark, 2.5);
+            Palette = sk.Palette;
+            PalettePens = new Pen[Palette.Length];
+            for (int i = 0; i < Palette.Length; i++) PalettePens[i] = Skin.P(Palette[i], 1);
+            Scanline = null;
+            if (sk.Scanlines)
+            {
+                // 2px ごとに 1px の薄い黒線を敷き詰めるブラシ
+                var line = new GeometryDrawing(new SolidColorBrush(Color.FromArgb(46, 0, 0, 0)), null, new RectangleGeometry(new Rect(0, 1, 1, 1)));
+                var db = new DrawingBrush(line);
+                db.TileMode = TileMode.Tile;
+                db.Viewport = new Rect(0, 0, 1, 2);
+                db.ViewportUnits = BrushMappingMode.Absolute;
+                db.Viewbox = new Rect(0, 0, 1, 2);
+                db.ViewboxUnits = BrushMappingMode.Absolute;
+                db.Freeze();
+                Scanline = db;
+            }
+            InvalidateVisual();
+        }
+
+        protected override Size MeasureOverride(Size availableSize) { return new Size(contentW, contentH); }
+
+        // ---------------------------------------------------------------- render
+
+        protected override void OnRender(DrawingContext dc)
+        {
+            dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            byte alpha = (byte)Math.Max(1, Math.Min(255, Math.Round(cfg.BackgroundOpacity * 255)));
+            Color bc = sk.Background;
+            var bg = new SolidColorBrush(Color.FromArgb(alpha, bc.R, bc.G, bc.B));
+            bg.Freeze();
+            dc.DrawRoundedRectangle(bg, null, new Rect(0, 0, contentW, contentH), sk.CornerRadius, sk.CornerRadius);
+
+            const double top = 12;
+            double x = Gap, h = 0, y;
+            boxes.Clear();
+            lock (st)
+            {
+                List<List<string>> layout = cfg.Layout;
+                for (int c = 0; c < layout.Count; c++)
+                {
+                    y = top;
+                    for (int i = 0; i < layout[c].Count; i++)
+                    {
+                        string id = layout[c][i];
+                        double y0 = y;
+                        y = DrawPanel(dc, id, x, y);
+                        var box = new PanelBox();
+                        box.Id = id;
+                        box.Col = c;
+                        box.Index = i;
+                        box.R = new Rect(x, y0 - 2, ColW, Math.Max(20, y - y0 + 2));
+                        boxes.Add(box);
+                        y += PanelGap;
+                    }
+                    h = Math.Max(h, y - PanelGap);
+                    x += ColW + Gap;
+                }
+                if (h == 0)
+                {
+                    T(dc, "表示する項目がありません", Gap, top, FS, Gray);
+                    T(dc, "右クリック → 表示する項目", Gap, top + RowH, FS, Gray);
+                    h = top + RowH * 2;
+                }
+            }
+            if (editMode) DrawEditOverlay(dc);
+            if (Scanline != null)
+ dc.DrawRectangle(Scanline, null, new Rect(0, 0, contentW, contentH));
+            if (sk.Border != null) dc.DrawRoundedRectangle(null, sk.Border, new Rect(0.5, 0.5, contentW - 1, contentH - 1), sk.CornerRadius, sk.CornerRadius);
+            h = Math.Ceiling(h + 12);
+            if (Math.Abs(h - contentH) > 0.5)
+            {
+                contentH = h;
+                Dispatcher.BeginInvoke(new Action(delegate { InvalidateMeasure(); InvalidateVisual(); }));
+            }
+        }
+
+        // ---------------------------------------------------------------- primitives
+
+        FormattedText Make(string s, double size, Brush b, Typeface tf)
+        {
+            return new FormattedText(s, Ja, FlowDirection.LeftToRight, tf, size, b, dip);
+        }
+
+        // align: 0 = 左, 1 = 右, 2 = 中央。戻り値は描画幅
+        double T(DrawingContext dc, string s, double x, double y, double size, Brush b, int align = 0, bool bold = false, double maxW = 0)
+        {
+            if (string.IsNullOrEmpty(s)) return 0;
+            FormattedText ft = Make(s, size, b, bold ? TfB : TfN);
+            if (maxW > 0)
+            {
+                ft.MaxTextWidth = maxW;
+                ft.MaxLineCount = 1;
+                ft.Trimming = TextTrimming.CharacterEllipsis;
+            }
+            double w = ft.Width;
+            double dx = align == 1 ? -w : align == 2 ? -w / 2 : 0;
+            dc.DrawText(ft, new Point(x + dx, y));
+            return w;
+        }
+
+        void Bar(DrawingContext dc, double x, double y, double w, double h, double frac, Brush fill)
+        {
+            dc.DrawRoundedRectangle(Track, null, new Rect(x, y, w, h), 2, 2);
+            if (double.IsNaN(frac)) return;
+            frac = Math.Max(0, Math.Min(1, frac));
+            if (frac > 0.004) dc.DrawRoundedRectangle(fill, null, new Rect(x, y, Math.Max(2, w * frac), h), 2, 2);
+        }
+
+        double BarRow(DrawingContext dc, double x, double y, double frac, Brush fill, string label, Brush labelBrush, string value, Brush valueBrush)
+        {
+            Bar(dc, x, y + 5, 98, 9, frac, fill);
+            T(dc, label, x + 106, y, FS, labelBrush);
+            T(dc, value, x + ColW, y, FS, valueBrush, 1);
+            return y + RowH;
+        }
+
+        double KeyValue(DrawingContext dc, double x, double y, string key, Brush keyBrush, string value, Brush valueBrush)
+        {
+            T(dc, key, x, y, FS, keyBrush);
+            T(dc, value, x + ColW, y, FS, valueBrush, 1);
+            return y + RowH;
+        }
+
+        void Header(DrawingContext dc, double x, double y, string glyph, Brush tile, string title, string right)
+        {
+            dc.DrawRoundedRectangle(tile, null, new Rect(x, y, 36, 36), 6, 6);
+            FormattedText icon = Make(glyph, 20, White, TfIcon);
+            dc.DrawText(icon, new Point(x + 18 - icon.Width / 2, y + 18 - icon.Height / 2));
+            T(dc, title, x + 46, y - 3, 15.5, White, 0, true);
+            if (right != null) T(dc, right, x + ColW, y - 3, 15.5, White, 1, true);
+        }
+
+        void Sep(DrawingContext dc, double x, double y)
+        {
+            dc.DrawLine(SepPen, new Point(x, y + 0.5), new Point(x + ColW, y + 0.5));
+        }
+
+        // Used / Free / Total の3列
+        double Triple(DrawingContext dc, double x, double y, string a, string b, string c, Brush brush)
+        {
+            T(dc, a, x + 36, y, FS, brush, 2);
+            T(dc, b, x + 110, y, FS, brush, 2);
+            T(dc, c, x + 184, y, FS, brush, 2);
+            return y + 17;
+        }
+
+        // max <= 0 のときは履歴の最大値に合わせて自動スケール。戻り値は使った上限値
+        double Graph(DrawingContext dc, Rect r, Hist[] series, Pen[] pens, double max)
+        {
+            dc.DrawRectangle(GraphBg, null, r);
+            dc.DrawLine(GridPen, new Point(r.X, Math.Round(r.Y + r.Height / 3) + 0.5), new Point(r.Right, Math.Round(r.Y + r.Height / 3) + 0.5));
+            dc.DrawLine(GridPen, new Point(r.X, Math.Round(r.Y + r.Height * 2 / 3) + 0.5), new Point(r.Right, Math.Round(r.Y + r.Height * 2 / 3) + 0.5));
+            if (max <= 0)
+            {
+                foreach (Hist h in series) max = Math.Max(max, h.Max());
+                max = Math.Max(max * 1.15, 1024);
+            }
+            dc.PushClip(new RectangleGeometry(r));
+            for (int s = 0; s < series.Length; s++)
+            {
+                Hist h = series[s];
+                if (h.Count < 2) continue;
+                double step = r.Width / (h.Cap - 1);
+                double x0 = r.Right - (h.Count - 1) * step;
+                var g = new StreamGeometry();
+                using (StreamGeometryContext ctx = g.Open())
+                {
+                    for (int i = 0; i < h.Count; i++)
+                    {
+                        double v = Math.Max(0, Math.Min(1, h.At(i) / max));
+                        var pt = new Point(x0 + i * step, r.Bottom - 1.5 - v * (r.Height - 3));
+                        if (i == 0) ctx.BeginFigure(pt, false, false);
+                        else ctx.LineTo(pt, true, true);
+                    }
+                }
+                g.Freeze();
+                dc.DrawGeometry(null, pens[s % pens.Length], g);
+            }
+            dc.Pop();
+            dc.DrawRectangle(null, GraphBorder, new Rect(r.X + 0.5, r.Y + 0.5, r.Width - 1, r.Height - 1));
+            return max;
+        }
+
+        // 自動スケールのグラフに上限値を小さく書く
+        void ScaleLabel(DrawingContext dc, Rect r, string text)
+        {
+            T(dc, text, r.X + 4, r.Y + 1, 10, Gray);
+        }
+
+        Brush Level(double value, double warn, double danger, Brush normal)
+        {
+            return value >= danger ? sk.Danger : value >= warn ? sk.Warn : normal;
+        }
+
+        // ---------------------------------------------------------------- formatting
+
+        static string Sig(double v)
+        {
+            if (v >= 1000) return v.ToString("0", Inv);
+            if (v >= 100) return v.ToString("0.0", Inv);
+            if (v >= 10) return v.ToString("0.00", Inv);
+            return v.ToString("0.000", Inv);
+        }
+
+        static readonly string[] ByteUnits = { "B", "kB", "MB", "GB", "TB", "PB" };
+
+        static string Bytes(double b)
+        {
+            int i = 0;
+            while (b >= 1024 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
+            return (i == 0 ? b.ToString("0", Inv) : Sig(b)) + " " + ByteUnits[i];
+        }
+
+        static string BytesShort(double b)
+        {
+            int i = 0;
+            while (b >= 1024 && i < ByteUnits.Length - 1) { b /= 1024; i++; }
+            return b.ToString(i == 0 ? "0" : "0.0", Inv) + " " + ByteUnits[i];
+        }
+
+        static string Bits(double bytesPerSec)
+        {
+            string[] u = { "bit/s", "kbit/s", "Mbit/s", "Gbit/s" };
+            double v = bytesPerSec * 8;
+            int i = 0;
+            while (v >= 1000 && i < u.Length - 1) { v /= 1000; i++; }
+            return (i == 0 ? v.ToString("0", Inv) : Sig(v)) + " " + u[i];
+        }
+
+        static string Pct(double v) { return double.IsNaN(v) ? "--%" : Math.Round(v).ToString("0", Inv) + "%"; }
+
+        static string N(double v, string fmt, string unit)
+        {
+            return double.IsNaN(v) ? "--" : v.ToString(fmt, Inv) + unit;
+        }
+
+        static string Span(TimeSpan t)
+        {
+            return string.Format(Inv, "{0}d {1}h {2:00}m {3:00}s", (int)t.TotalDays, t.Hours, t.Minutes, t.Seconds);
+        }
+
+        // ---------------------------------------------------------------- GPU
+
+        double DrawGpu(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TileGreen, "GPU Meter", st.GpuOk ? Pct(st.GpuUtil) : null);
+            if (!st.GpuOk)
+            {
+                T(dc, "GPU情報を取得できません", x + 46, y + 19, 12.5, Gray, 0, false, ColW - 46);
+                return y + 44;
+            }
+            T(dc, st.GpuName, x + 46, y + 19, 12.5, Yellow, 0, false, ColW - 46);
+            T(dc, "Clock: " + N(st.GpuClock, "0", " MHz"), x + 46, y + 35, 12.5, Yellow);
+            y += 58;
+
+            double used = st.VramUsedMB * 1048576.0, total = st.VramTotalMB * 1048576.0;
+            y = Triple(dc, x, y, "Used", "Free", "Total", White);
+            y = Triple(dc, x, y, Bytes(used), Bytes(Math.Max(0, total - used)), Bytes(total), Cyan) + 2;
+            double vram = total > 0 ? used / total : 0;
+            Brush vramBrush = Level(vram, 0.9, 0.97, Cyan);
+            y = BarRow(dc, x, y, vram, vramBrush, "VRAM", Cyan, Pct(vram * 100), vramBrush);
+            y = KeyValue(dc, x, y, "Memory Clock:", Orange, N(st.GpuMemClock, "0", " MHz"), Orange);
+            Sep(dc, x, y + 3);
+            y += 8;
+            Brush tempBrush = Level(st.GpuTemp, 78, 86, Green);   // 高温になったら色で知らせる
+            y = BarRow(dc, x, y, st.GpuTemp / 100.0, tempBrush, "Temp", Green, N(st.GpuTemp, "0", " °C"), tempBrush);
+            y = BarRow(dc, x, y, st.GpuUtil / 100.0, Yellow, "GPU", Yellow, Pct(st.GpuUtil), Yellow);
+            if (!float.IsNaN(st.GpuPowerW))
+            {
+                string pw = st.GpuPowerW.ToString("0", Inv) + " W";
+                if (st.GpuPowerLimitW > 0) pw += "  " + (st.GpuPowerW / st.GpuPowerLimitW * 100).ToString("0.0", Inv) + "%";
+                y = KeyValue(dc, x, y, "消費電力:", Orange, pw, Orange);
+            }
+            if (!float.IsNaN(st.GpuFan)) y = KeyValue(dc, x, y, "Fan:", Violet, Pct(st.GpuFan), Violet);
+            y += 4;
+            Graph(dc, new Rect(x, y, ColW, 44), new[] { st.GpuTempHist, st.GpuUtilHist }, new[] { PenGreen, PenYellow }, 100);
+            return y + 44;
+        }
+
+        // ---------------------------------------------------------------- network
+
+        double DrawNet(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TileTeal, "Network Meter", null);
+            T(dc, "Peak: " + Bits(st.PeakBps), x + 46, y + 19, 12.5, Lime);
+            y += 44;
+            if (cfg.ShowIp) y = KeyValue(dc, x, y, "Int IP:", Cyan, st.IntIp ?? "未接続", Cyan);
+            y = KeyValue(dc, x, y, "Ping:", Yellow, st.PingMs >= 0 ? st.PingMs.ToString(Inv) + " ms" : "--", Yellow);
+            y = UpDown(dc, x, y, Bits(st.UpBps), Bytes(st.UpBps) + "/s", Bits(st.DownBps), Bytes(st.DownBps) + "/s") + 4;
+            var netRect = new Rect(x, y, ColW, 44);
+            ScaleLabel(dc, netRect, Bits(Graph(dc, netRect, new[] { st.UpHist, st.DownHist }, new[] { PenGreen, PenYellow }, 0)));
+            y += 50;
+            T(dc, "Current", x + 55, y, FS, Cyan, 2);
+            T(dc, "Total", x + 165, y, FS, Cyan, 2);
+            y += 17;
+            return UpDown(dc, x, y, Bytes(st.SessUp), Bytes(st.TotUp), Bytes(st.SessDown), Bytes(st.TotDown));
+        }
+
+        // 上り(緑▲) と 下り(黄▼) を2列で表示
+        double UpDown(DrawingContext dc, double x, double y, string upL, string upR, string downL, string downR)
+        {
+            T(dc, "▲", x, y + 1, 11, Green);
+            T(dc, upL, x + 15, y, 12.5, Yellow);
+            T(dc, "▲", x + 116, y + 1, 11, Green);
+            T(dc, upR, x + ColW, y, 12.5, Yellow, 1);
+            y += RowH;
+            T(dc, "▼", x, y + 1, 11, Yellow);
+            T(dc, downL, x + 15, y, 12.5, Cyan);
+            T(dc, "▼", x + 116, y + 1, 11, Yellow);
+            T(dc, downR, x + ColW, y, 12.5, Cyan, 1);
+            return y + RowH;
+        }
+
+        // ---------------------------------------------------------------- drives
+
+        double DrawDrives(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TileSlate, "Drives Meter", Pct(st.DiskActive));
+            T(dc, "Activity", x + 46, y + 19, 12.5, Gray);
+            y += 44;
+            foreach (DriveRow d in st.Drives)
+            {
+                double usedFrac = d.Total > 0 ? (double)(d.Total - d.Free) / d.Total : 0;
+                T(dc, d.Name + " " + d.Label, x, y, FS, Cyan, 0, false, ColW - 44);
+                T(dc, Pct(usedFrac * 100), x + ColW, y, FS, White, 1);
+                y += RowH;
+                T(dc, "Used: " + Bytes(d.Total - d.Free), x, y, 12, Cyan);
+                T(dc, "Free: " + Bytes(d.Free), x + ColW, y, 12, Cyan, 1);
+                y += 16;
+                T(dc, "Total: " + Bytes(d.Total), x, y, 12, Cyan);
+                Bar(dc, x + 112, y + 5, ColW - 112, 8, usedFrac, usedFrac > 0.9 ? Red : Cyan);
+                y += RowH + 2;
+            }
+            T(dc, "▲", x, y + 1, 11, Green);
+            T(dc, Bytes(st.ReadBps) + "/s", x + 15, y, 12.5, Lime);
+            T(dc, "▼", x + 116, y + 1, 11, Yellow);
+            T(dc, Bytes(st.WriteBps) + "/s", x + ColW, y, 12.5, Yellow, 1);
+            y += RowH + 4;
+            var ioRect = new Rect(x, y, ColW, 44);
+            ScaleLabel(dc, ioRect, Bytes(Graph(dc, ioRect, new[] { st.ReadHist, st.WriteHist }, new[] { PenGreen, PenYellow }, 0)) + "/s");
+            return y + 44;
+        }
+
+        // ---------------------------------------------------------------- top memory
+
+        double DrawTopMem(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TileRose, "Top Memory Meter", null);
+            T(dc, "プロセス別のメモリ", x + 46, y + 19, 12.5, Gray);
+            y += 44;
+            long max = 1;
+            foreach (ProcRow p in st.MemProcs) if (p.Mem > max) max = p.Mem;
+            for (int i = 0; i < st.MemProcs.Count; i++)
+            {
+                ProcRow p = st.MemProcs[i];
+                Brush b = Palette[i % Palette.Length];
+                T(dc, p.Name, x, y, FS, b, 0, false, 92);
+                Bar(dc, x + 98, y + 6, 54, 7, (double)p.Mem / max, b);
+                T(dc, BytesShort(p.Mem), x + ColW, y, FS, b, 1);
+                y += RowH;
+            }
+            return y;
+        }
+
+        // ---------------------------------------------------------------- CPU / RAM
+
+        double DrawCpu(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TileBlue, "CPU Meter", Pct(st.CpuTotal));
+            T(dc, st.CpuName, x + 46, y + 19, 12.5, Yellow, 0, false, ColW - 46);
+            T(dc, "Clock: " + st.CpuMHz.ToString("0", Inv) + " MHz", x + 46, y + 35, 12.5, Yellow);
+            y += 58;
+
+            double ramUsed = st.RamTotal > st.RamAvail ? st.RamTotal - st.RamAvail : 0;
+            double pageFree = st.PageTotal > st.PageUsed ? st.PageTotal - st.PageUsed : 0;
+            y = Triple(dc, x, y, "Used", "Free", "Total", White);
+            y = Triple(dc, x, y, Bytes(ramUsed), Bytes(st.RamAvail), Bytes(st.RamTotal), Cyan);
+            y = Triple(dc, x, y, Bytes(st.PageUsed), Bytes(pageFree), Bytes(st.PageTotal), Yellow) + 2;
+            double ram = st.RamTotal > 0 ? ramUsed / st.RamTotal : 0;
+            double page = st.PageTotal > 0 ? (double)st.PageUsed / st.PageTotal : 0;
+            Brush ramBrush = Level(ram, 0.85, 0.93, Cyan);   // メモリ逼迫を色で知らせる
+            y = BarRow(dc, x, y, ram, ramBrush, "RAM", Cyan, Pct(ram * 100), ramBrush);
+            y = BarRow(dc, x, y, page, Yellow, "Page", Yellow, Pct(page * 100), Yellow);
+            Sep(dc, x, y + 3);
+            y += 8;
+
+            if (cfg.CompactCores)
+            {
+                // 2列表示: 左右に並ぶ2つは (Pコアなら) 同じ物理コアのスレッド
+                double cellW = (ColW - 10) / 2;
+                for (int i = 0; i < st.Cores.Length; i++)
+                {
+                    Brush b = Palette[i % Palette.Length];
+                    double cx = x + (i % 2) * (cellW + 10), cy = y + (i / 2) * RowH;
+                    Bar(dc, cx, cy + 5, 44, 9, st.Cores[i] / 100.0, b);
+                    T(dc, (i + 1).ToString(Inv), cx + 49, cy + 1, 12, b);
+                    T(dc, Pct(st.Cores[i]), cx + cellW, cy, FS, b, 1);
+                }
+                y += (st.Cores.Length + 1) / 2 * RowH;
+            }
+            else
+            {
+                for (int i = 0; i < st.Cores.Length; i++)
+                {
+                    Brush b = Palette[i % Palette.Length];
+                    y = BarRow(dc, x, y, st.Cores[i] / 100.0, b, "Core " + (i + 1).ToString(Inv), b, Pct(st.Cores[i]), b);
+                }
+            }
+            y += 4;
+            Graph(dc, new Rect(x, y, ColW, 46), st.CoreHist, PalettePens, 100);
+            return y + 46;
+        }
+
+        double DrawTop(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TilePurple, "Top CPU Meter", null);
+            T(dc, "プロセス別の使用率", x + 46, y + 19, 12.5, Gray);
+            y += 44;
+            for (int i = 0; i < st.Procs.Count; i++)
+            {
+                ProcRow p = st.Procs[i];
+                Brush b = Palette[i % Palette.Length];
+                T(dc, p.Name, x, y, FS, b, 0, false, 100);
+                T(dc, BytesShort(p.Mem), x + 168, y, FS, b, 1);
+                T(dc, p.Cpu.ToString("0.0", Inv) + "%", x + ColW, y, FS, b, 1);
+                y += RowH;
+            }
+            y += 4;
+            Graph(dc, new Rect(x, y, ColW, 40), new[] { st.ProcHist }, new[] { PenGreen }, 100);
+            return y + 40;
+        }
+
+        // ---------------------------------------------------------------- clock / calendar
+
+        double DrawClock(DrawingContext dc, double x, double y)
+        {
+            DateTime now = DateTime.Now;
+            FormattedText hm = Make(now.ToString("HH:mm", Inv), 40, Cyan, TfB);
+            FormattedText ss = Make(now.ToString("ss", Inv), 23, Cyan, TfB);
+            double sx = x + (ColW - (hm.Width + 5 + ss.Width)) / 2;
+            dc.DrawText(hm, new Point(sx, y));
+            dc.DrawText(ss, new Point(sx + hm.Width + 5, y + hm.Baseline - ss.Baseline));
+            y += 52;
+            T(dc, now.ToString("yyyy年M月d日 (ddd)", Ja), x + ColW / 2, y, 13.5, Lime, 2);
+            y += 20;
+            int week = Inv.Calendar.GetWeekOfYear(now, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+            T(dc, string.Format(Inv, "Day: {0}    Week: {1}    Q{2}", now.DayOfYear, week, (now.Month - 1) / 3 + 1), x + ColW / 2, y, 12.5, Yellow, 2);
+            y += 22;
+            Sep(dc, x, y);
+            y += 6;
+            y = KeyValue(dc, x, y, "Uptime:", Orange, Span(TimeSpan.FromMilliseconds(Native.GetTickCount64())), Orange);
+            DateTime newYear = new DateTime(now.Year + 1, 1, 1);
+            y = KeyValue(dc, x, y, (now.Year + 1).ToString(Inv) + "年まで:", Cyan, Span(newYear - now), Red);
+            Sep(dc, x, y + 4);
+            return y + 12;
+        }
+
+        double DrawCalendar(DrawingContext dc, double x, double y)
+        {
+            DateTime today = DateTime.Today;
+            T(dc, today.ToString("yyyy年 M月", Ja), x + ColW / 2, y, 14.5, White, 2, true);
+            y += 25;
+            double cw = ColW / 7, ch = 23;
+            string[] names = { "日", "月", "火", "水", "木", "金", "土" };
+            int dow = (int)today.DayOfWeek;
+            for (int i = 0; i < 7; i++)
+            {
+                dc.DrawRectangle(i == dow ? TodayOrange : CalHead, null, new Rect(x + i * cw + 1, y, cw - 2, 20));
+                T(dc, names[i], x + i * cw + cw / 2, y + 1, 12.5, White, 2);
+            }
+            y += 24;
+            DateTime first = new DateTime(today.Year, today.Month, 1);
+            DateTime start = first.AddDays(-(int)first.DayOfWeek);
+            for (int r = 0; r < 6; r++)
+            {
+                for (int c = 0; c < 7; c++)
+                {
+                    DateTime d = start.AddDays(r * 7 + c);
+                    double cx = x + c * cw + cw / 2, cy = y + r * ch;
+                    if (d == today)
+                    {
+                        dc.DrawRectangle(TodayOrange, null, new Rect(x + c * cw + 3, cy, cw - 6, ch - 2));
+                        T(dc, d.Day.ToString(Inv), cx, cy + 1, 13.5, White, 2, true);
+                    }
+                    else
+                    {
+                        Brush b = d.Month != today.Month ? Dim : c == 0 ? sk.CalSun : c == 6 ? sk.CalSat : Cyan;
+                        T(dc, d.Day.ToString(Inv), cx, cy + 1, 13.5, b, 2);
+                    }
+                }
+            }
+            return y + 6 * ch;
+        }
+
+        double DrawDateTile(DrawingContext dc, double x, double y)
+        {
+            DateTime today = DateTime.Today;
+            const double th = 158;
+            dc.DrawRoundedRectangle(TileGradient, null, new Rect(x, y, ColW, th), 4, 4);
+            T(dc, today.ToString("dddd", Ja), x + ColW / 2, y + 8, 17, sk.DateTileText, 2);
+            FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfL);
+            dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, y + 18));
+            T(dc, today.ToString("M月 yyyy", Ja), x + ColW / 2, y + th - 28, 15, sk.DateTileText, 2);
+            return y + th;
+        }
+
+        // ---------------------------------------------------------------- weather
+
+        double DrawWeather(DrawingContext dc, double x, double y)
+        {
+            T(dc, "Weather Meter", x + ColW / 2, y, 15.5, White, 2, true);
+            y += 26;
+            if (!cfg.WeatherEnabled)
+            {
+                T(dc, "天気は無効です (settings.json)", x + ColW / 2, y, 12.5, Gray, 2);
+                return y + RowH;
+            }
+            Weather w = st.Weather;
+            if (w == null)
+            {
+                T(dc, st.WeatherError == null ? "取得中..." : "取得できません: " + st.WeatherError, x + ColW / 2, y, 12.5, Gray, 2, false, ColW);
+                return y + RowH;
+            }
+
+            double moonPhase = MoonAge(DateTime.UtcNow) / Synodic;
+            WeatherIcon(dc, x + 2, y, 76, w.Code, w.IsDay, moonPhase);
+            T(dc, N(w.Temp, "0", "°C"), x + ColW, y - 8, 36, Lime, 1, true);
+            T(dc, "Hi: " + N(w.Hi, "0", "°") + "   Lo: " + N(w.Lo, "0", "°"), x + ColW, y + 38, 12.5, Cyan, 1);
+            T(dc, "体感: " + N(w.Feels, "0", "°"), x + ColW, y + 55, 12.5, Cyan, 1);
+            y += 78;
+            T(dc, Describe(w.Code), x + ColW, y, FS, Yellow, 1);
+            y += 17;
+            T(dc, cfg.LocationName, x + ColW, y, FS, Lime, 1, false, ColW);
+            y += 22;
+
+            y = KeyValue(dc, x, y, "湿度:", Yellow, N(w.Humidity, "0", "%"), Yellow);
+            y = KeyValue(dc, x, y, "気圧:", Red, N(w.Pressure, "0.0", " hPa"), Red);
+            y = KeyValue(dc, x, y, "風:", Magenta, N(w.Wind, "0", " km/h") + "  " + Compass(w.WindDir), Magenta);
+            y = KeyValue(dc, x, y, "UV指数:", Violet, N(w.Uv, "0.0", "") + "  " + UvLabel(w.Uv), Violet);
+            y = KeyValue(dc, x, y, "降水確率:", Cyan, N(w.PrecipProb, "0", "%"), Cyan);
+            if (w.Sunrise > DateTime.MinValue && w.Sunset > DateTime.MinValue)
+            {
+                y = KeyValue(dc, x, y, "日の出:", Orange, w.Sunrise.ToString("H:mm", Inv), Orange);
+                y = KeyValue(dc, x, y, "日の入:", Orange, w.Sunset.ToString("H:mm", Inv), Orange);
+                TimeSpan len = w.Sunset - w.Sunrise;
+                y = KeyValue(dc, x, y, "昼の長さ:", Yellow, string.Format(Inv, "{0}:{1:00}", (int)len.TotalHours, len.Minutes), Yellow);
+            }
+            double age = moonPhase * Synodic;
+            T(dc, "月齢:", x, y, FS, Gray);
+            double tw = T(dc, age.ToString("0.0", Inv) + "  " + MoonName(age), x + ColW, y, FS, Gray, 1);
+            MoonDisc(dc, x + ColW - tw - 14, y + 9.5, 7, moonPhase);
+            y += RowH + 3;
+            Sep(dc, x, y);
+            y += 4;
+            T(dc, "更新: " + w.Updated.ToString("M/d H:mm", Inv) + "  (Open-Meteo)", x + ColW / 2, y, 11.5, Cyan, 2);
+            return y + 14;
+        }
+
+        const double Synodic = 29.530588853;
+
+        static double MoonAge(DateTime utc)
+        {
+            double jd = utc.ToOADate() + 2415018.5;
+            double age = (jd - 2451550.1) % Synodic;
+            return age < 0 ? age + Synodic : age;
+        }
+
+        static string MoonName(double age)
+        {
+            if (age < 1.5 || age >= 28.0) return "新月";
+            if (age < 6.0) return "三日月";
+            if (age < 9.0) return "上弦";
+            if (age < 13.5) return "十三夜";
+            if (age < 16.5) return "満月";
+            if (age < 21.0) return "寝待月";
+            if (age < 24.0) return "下弦";
+            return "有明月";
+        }
+
+        static string Describe(int code)
+        {
+            switch (code)
+            {
+                case 0: return "快晴";
+                case 1: return "晴れ";
+                case 2: return "所により曇り";
+                case 3: return "曇り";
+                case 45: case 48: return "霧";
+                case 51: case 53: case 55: return "霧雨";
+                case 56: case 57: return "着氷性の霧雨";
+                case 61: return "弱い雨";
+                case 63: return "雨";
+                case 65: return "強い雨";
+                case 66: case 67: return "着氷性の雨";
+                case 71: return "弱い雪";
+                case 73: return "雪";
+                case 75: return "強い雪";
+                case 77: return "霧雪";
+                case 80: case 81: return "にわか雨";
+                case 82: return "激しいにわか雨";
+                case 85: case 86: return "にわか雪";
+                case 95: return "雷雨";
+                case 96: case 99: return "雷雨 (ひょう)";
+                default: return "--";
+            }
+        }
+
+        static string Compass(double deg)
+        {
+            if (double.IsNaN(deg)) return "";
+            string[] d = { "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東", "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西" };
+            return d[(int)Math.Round(((deg % 360) + 360) % 360 / 22.5) % 16];
+        }
+
+        static string UvLabel(double uv)
+        {
+            if (double.IsNaN(uv)) return "";
+            if (uv < 3) return "弱い";
+            if (uv < 6) return "中程度";
+            if (uv < 8) return "強い";
+            if (uv < 11) return "非常に強い";
+            return "極端に強い";
+        }
+
+        // phase: 0 = 新月, 0.5 = 満月 (北半球での見え方)
+        void MoonDisc(DrawingContext dc, double cx, double cy, double r, double phase)
+        {
+            dc.DrawEllipse(MoonDark, null, new Point(cx, cy), r, r);
+            double c = Math.Cos(2 * Math.PI * phase);
+            bool waxing = phase < 0.5, crescent = c > 0;
+            var top = new Point(cx, cy - r);
+            var bottom = new Point(cx, cy + r);
+            var g = new StreamGeometry();
+            using (StreamGeometryContext ctx = g.Open())
+            {
+                ctx.BeginFigure(top, true, true);
+                ctx.ArcTo(bottom, new Size(r, r), 0, false, waxing ? SweepDirection.Clockwise : SweepDirection.Counterclockwise, true, false);
+                SweepDirection back = waxing == crescent ? SweepDirection.Counterclockwise : SweepDirection.Clockwise;
+                ctx.ArcTo(top, new Size(Math.Max(0.01, Math.Abs(c) * r), r), 0, false, back, true, false);
+            }
+            g.Freeze();
+            dc.DrawGeometry(MoonLit, null, g);
+        }
+
+        void WeatherIcon(DrawingContext dc, double x, double y, double s, int code, bool day, double moonPhase)
+        {
+            bool cloud = code >= 2;
+            bool sky = code <= 2;
+            bool thunder = code >= 95;
+            bool snow = (code >= 71 && code <= 77) || code == 85 || code == 86;
+            bool rain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || thunder;
+            bool fog = code == 45 || code == 48;
+
+            if (sky)
+            {
+                double cx = cloud ? x + s * 0.64 : x + s * 0.5, cy = cloud ? y + s * 0.34 : y + s * 0.5;
+                double r = cloud ? s * 0.17 : s * 0.24;
+                if (day)
+                {
+                    dc.DrawEllipse(SunBrush, null, new Point(cx, cy), r, r);
+                    for (int i = 0; i < 8; i++)
+                    {
+                        double a = i * Math.PI / 4;
+                        dc.DrawLine(SunPen, new Point(cx + Math.Cos(a) * r * 1.35, cy + Math.Sin(a) * r * 1.35),
+                            new Point(cx + Math.Cos(a) * r * 1.75, cy + Math.Sin(a) * r * 1.75));
+                    }
+                }
+                else MoonDisc(dc, cx, cy, r * 1.25, moonPhase);
+            }
+            if (cloud || fog)
+            {
+                Brush b = code >= 3 ? CloudDark : CloudLight;
+                double oy = (rain || snow) ? -s * 0.08 : 0;
+                dc.DrawEllipse(b, null, new Point(x + s * 0.34, y + s * 0.58 + oy), s * 0.16, s * 0.16);
+                dc.DrawEllipse(b, null, new Point(x + s * 0.52, y + s * 0.48 + oy), s * 0.21, s * 0.21);
+                dc.DrawEllipse(b, null, new Point(x + s * 0.69, y + s * 0.60 + oy), s * 0.14, s * 0.14);
+                dc.DrawRoundedRectangle(b, null, new Rect(x + s * 0.18, y + s * 0.56 + oy, s * 0.65, s * 0.20), s * 0.1, s * 0.1);
+            }
+            if (rain)
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    double rx = x + s * (0.36 + i * 0.16);
+                    dc.DrawLine(RainPen, new Point(rx, y + s * 0.76), new Point(rx - s * 0.05, y + s * 0.92));
+                }
+            }
+            if (snow)
+            {
+                for (int i = 0; i < 3; i++)
+                    dc.DrawEllipse(SnowBrush, null, new Point(x + s * (0.34 + i * 0.17), y + s * (0.80 + (i % 2) * 0.08)), 2.4, 2.4);
+            }
+            if (thunder)
+            {
+                var g = new StreamGeometry();
+                using (StreamGeometryContext ctx = g.Open())
+                {
+                    ctx.BeginFigure(new Point(x + s * 0.58, y + s * 0.62), true, true);
+                    ctx.LineTo(new Point(x + s * 0.44, y + s * 0.80), true, false);
+                    ctx.LineTo(new Point(x + s * 0.53, y + s * 0.80), true, false);
+                    ctx.LineTo(new Point(x + s * 0.46, y + s * 0.98), true, false);
+                    ctx.LineTo(new Point(x + s * 0.66, y + s * 0.74), true, false);
+                    ctx.LineTo(new Point(x + s * 0.56, y + s * 0.74), true, false);
+                }
+                g.Freeze();
+                dc.DrawGeometry(SunBrush, null, g);
+            }
+            if (fog)
+            {
+                for (int i = 0; i < 2; i++)
+                    dc.DrawLine(FogPen, new Point(x + s * 0.2, y + s * (0.84 + i * 0.09)), new Point(x + s * 0.8, y + s * (0.84 + i * 0.09)));
+            }
+        }
+    }
+}

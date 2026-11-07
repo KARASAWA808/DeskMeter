@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskMeter ヘルプ: 天気の表示場所を変更する手順</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2933; --bg: #f7f8fa; --muted: #5b6672; --line: #d7dde5; --code: #eceff3; --accent: #0b7285; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6e9ee; --bg: #121417; --muted: #9aa3ad; --line: #2b3138; --code: #1d2126; --accent: #5cc8ff; } }
+  body { margin: 0; padding: 32px 16px 64px; background: var(--bg); color: var(--fg); font: 15px/1.7 "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif; }
+  main { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 36px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--code); }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  a { color: var(--accent); }
+  ol li, ul li { margin: 4px 0; }
+  .note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>天気の表示場所を変更する手順</h1>
+<p class="meta">DeskMeter ヘルプ · 2026-11-07 · <a href="https://claude.ai/artifact/1LtTha1Q2SL2NNp5XwwhPP">オンライン版（編集・コメント用）</a></p>
+
+<h2>概要</h2>
+<p>天気の表示場所は、設定ファイル <code>settings.json</code> の緯度・経度を書き換えるだけで変わります。DeskMeter は Open-Meteo という無料の天気サービスに緯度・経度を送って天気を取得しているので、地名ではなく数値で場所を指定します。</p>
+<table>
+  <tr><th>設定項目</th><th>役割</th><th>いまの値</th></tr>
+  <tr><td><code>Latitude</code></td><td>緯度（北緯はプラス）</td><td>35.08</td></tr>
+  <tr><td><code>Longitude</code></td><td>経度（東経はプラス）</td><td>137.16</td></tr>
+  <tr><td><code>LocationName</code></td><td>天気パネルに表示する地名（表示用の文字で、取得には使わない）</td><td>愛知県 豊田市</td></tr>
+</table>
+<p>設定ファイルの場所: <code>C:\Users\karaw\DeskMeter\settings.json</code>（DeskMeter.exe と同じフォルダー）。所要時間は5分ほどです。</p>
+
+<h2>手順1: 表示したい場所の緯度・経度を調べる</h2>
+<p>小数点2桁まであれば十分です（0.01度は約1km。天気は数km単位のメッシュで計算されます）。</p>
+<ol>
+  <li>Google マップで表示したい場所を開き、地図上を右クリックします。</li>
+  <li>メニューの一番上に「35.08219, 137.15622」のような数値が出ます。クリックするとコピーされます。</li>
+  <li>前が緯度 (<code>Latitude</code>)、後ろが経度 (<code>Longitude</code>) です。</li>
+</ol>
+<p>Google マップを使わない場合は、ブラウザーで次のURLの「名古屋」を地名に変えて開くと、<code>latitude</code> と <code>longitude</code> が返ってきます:<br>
+<a href="https://geocoding-api.open-meteo.com/v1/search?name=%E5%90%8D%E5%8F%A4%E5%B1%8B&amp;language=ja&amp;count=5">https://geocoding-api.open-meteo.com/v1/search?name=名古屋&amp;language=ja&amp;count=5</a></p>
+<p>主な都市のおおよその値（市役所付近。概算値なので、正確にしたいときは上の方法で調べてください）:</p>
+<table>
+  <tr><th>都市</th><th>Latitude</th><th>Longitude</th></tr>
+  <tr><td>札幌</td><td>43.06</td><td>141.35</td></tr>
+  <tr><td>仙台</td><td>38.27</td><td>140.87</td></tr>
+  <tr><td>東京（千代田区）</td><td>35.68</td><td>139.77</td></tr>
+  <tr><td>横浜</td><td>35.44</td><td>139.64</td></tr>
+  <tr><td>名古屋</td><td>35.18</td><td>136.91</td></tr>
+  <tr><td>豊田</td><td>35.08</td><td>137.16</td></tr>
+  <tr><td>京都</td><td>35.01</td><td>135.77</td></tr>
+  <tr><td>大阪</td><td>34.69</td><td>135.50</td></tr>
+  <tr><td>広島</td><td>34.39</td><td>132.46</td></tr>
+  <tr><td>福岡</td><td>33.59</td><td>130.40</td></tr>
+  <tr><td>那覇</td><td>26.21</td><td>127.68</td></tr>
+</table>
+
+<h2>手順2: settings.json を開いて書き換える</h2>
+<p>書き換えるのは3行だけです。それ以外の行は触らないでください。</p>
+<ol>
+  <li>ウィジェットを右クリックし、「設定ファイルを開く (settings.json)」を選びます。メモ帳で開きます。<br>
+      <span class="note">DeskMeter が起動していないときは、エクスプローラーで <code>C:\Users\karaw\DeskMeter\settings.json</code> をメモ帳で開きます。</span></li>
+  <li><code>"Latitude"</code>、<code>"Longitude"</code>、<code>"LocationName"</code> の3行を探し、値を書き換えます。</li>
+  <li>上書き保存します（Ctrl+S）。</li>
+</ol>
+<p>書き換えの例（豊田市 → 名古屋市）:</p>
+<pre><code>変更前
+  "Latitude": 35.08,
+  "Longitude": 137.16,
+  "LocationName": "愛知県 豊田市",
+
+変更後
+  "Latitude": 35.18,
+  "Longitude": 136.91,
+  "LocationName": "愛知県 名古屋市",</code></pre>
+<p>書き方の決まり:</p>
+<ul>
+  <li>数値は引用符 <code>"</code> で囲まない。地名は <code>"</code> で囲む。</li>
+  <li>小数点は半角の <code>.</code>、行末の <code>,</code> はそのまま残す。</li>
+  <li>南緯・西経はマイナスを付ける（例: シドニーは -33.87, 151.21）。</li>
+  <li>地名は表示用なので自由に書けます（「自宅」「実家」などでも可）。</li>
+</ul>
+
+<h2>手順3: 設定を反映して確認する</h2>
+<p>再起動は不要です。メニューから読み直すと、その場で新しい場所の天気を取りに行きます。</p>
+<ol>
+  <li>ウィジェットを右クリックし、「設定ファイルを再読み込み」を選びます。</li>
+  <li>天気パネルが「取得中...」になり、数秒で新しい値に変わります。</li>
+  <li>次の3点を確認します。
+    <ul>
+      <li>天気の説明（「晴れ」など）の下に、書いた地名が出ている。</li>
+      <li>パネルの一番下の「更新:」がいまの時刻になっている。</li>
+      <li>日の出・日の入の時刻が、その地域に合った値になっている（東西に遠い場所ほど差が出ます）。</li>
+    </ul>
+  </li>
+</ol>
+<p>メニューが開けないときは、DeskMeter を終了して起動し直しても同じ結果になります。その後は15分おきに自動で更新され、「天気を今すぐ更新」で手動更新もできます。</p>
+
+<h2>うまくいかないとき</h2>
+<p>ほとんどは書き間違いか通信の問題です。症状から引いてください。</p>
+<table>
+  <tr><th>症状</th><th>原因</th><th>対処</th></tr>
+  <tr><td>「取得できません: ...」と赤く出る</td><td>緯度が -90〜90、経度が -180〜180 の範囲外。またはインターネットにつながっていない</td><td>値を見直す。緯度と経度を逆に書いていないか確認する（日本は緯度が20〜46、経度が122〜154）。通信が復旧すれば最大でも2分後に自動で再試行する</td></tr>
+  <tr><td>値を変えたのに前の場所のまま</td><td>保存していない、または「設定ファイルを再読み込み」をしていない</td><td>メモ帳で上書き保存してから、再読み込みをする</td></tr>
+  <tr><td>設定が全部初期値に戻った（場所が豊田市に戻る、位置が右上に戻る）</td><td>JSON の書き間違い（カンマの消し忘れ、引用符の欠け、全角数字）。読めないときは初期値で動く</td><td><code>C:\Users\karaw\DeskMeter\deskmeter.log</code> の末尾に理由が記録される。ファイルを開いて直し、もう一度再読み込みする</td></tr>
+  <tr><td>天気は変わったが地名が前のまま</td><td><code>LocationName</code> を書き換えていない</td><td>地名は自動では決まらないので、手で書き換える</td></tr>
+  <tr><td>天気パネル自体が無い</td><td>表示項目から外れているか、<code>WeatherEnabled</code> が false</td><td>右クリック →「表示する項目」→「天気」をオンにする。設定ファイルの <code>WeatherEnabled</code> を true にする</td></tr>
+</table>
+
+<h2>補足: 天気を出さない / 天気パネルの位置を変える</h2>
+<p>天気を止めると、外部への通信は Ping だけになります。パネルの位置はドラッグで変えられます。</p>
+<ul>
+  <li><strong>天気を取得しない</strong>: <code>settings.json</code> の <code>"WeatherEnabled": true</code> を <code>false</code> にして再読み込み。パネルには「天気は無効です」と出ます。</li>
+  <li><strong>パネルごと隠す</strong>: 右クリック →「表示する項目」→「天気」をオフ。もう一度オンにすると右列の末尾に戻ります。</li>
+  <li><strong>パネルの位置を変える</strong>: 右クリック →「配置の編集」で各パネルに枠が出るので、天気パネルをドラッグして好きな列・順番に落とします。ウィンドウの左右の外側に落とすと新しい列になります。終わったらもう一度「配置の編集」を選びます。</li>
+</ul>
+</main>
+</body>
+</html>

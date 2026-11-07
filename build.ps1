@@ -1,0 +1,24 @@
+# Builds DeskMeter.exe with the C# compiler that ships with Windows (.NET Framework 4.x).
+# No SDK install required.  Usage:  powershell -ExecutionPolicy Bypass -File build.ps1
+$ErrorActionPreference = 'Stop'
+$fw  = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
+$csc = Join-Path $fw 'csc.exe'
+if (-not (Test-Path $csc)) { throw "csc.exe not found: $csc" }
+
+$out = Join-Path $PSScriptRoot 'DeskMeter.exe'
+$src = Get-ChildItem (Join-Path $PSScriptRoot 'src') -Filter *.cs | ForEach-Object { $_.FullName }
+
+$ico = Join-Path $PSScriptRoot 'app.ico'
+$iconArg = @(); if (Test-Path $ico) { $iconArg = @("/win32icon:$ico") }
+
+& $csc /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 /warn:3 `
+    "/out:$out" $iconArg `
+    "/r:$fw\WPF\PresentationCore.dll" `
+    "/r:$fw\WPF\PresentationFramework.dll" `
+    "/r:$fw\WPF\WindowsBase.dll" `
+    "/r:$fw\System.Xaml.dll" `
+    /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll `
+    $src
+
+if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)" }
+Write-Host "Built: $out"

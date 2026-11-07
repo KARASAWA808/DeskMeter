@@ -1,0 +1,688 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Web.Script.Serialization;
+using Microsoft.Win32;
+
+namespace DeskMeter
+{
+    // 固定長のリングバッファ (グラフ用の履歴)
+    sealed class Hist
+    {
+        readonly float[] buf;
+        int head;
+        public int Count;
+
+        public Hist(int cap) { buf = new float[cap]; }
+        public int Cap { get { return buf.Length; } }
+
+        public void Add(float v)
+        {
+            if (float.IsNaN(v) || float.IsInfinity(v)) v = 0;
+            buf[head] = v;
+            head = (head + 1) % buf.Length;
+            if (Count < buf.Length) Count++;
+        }
+
+        // i = 0 が最も古い値
+        public float At(int i)
+        {
+            return buf[(head - Count + i + buf.Length * 2) % buf.Length];
+        }
+
+        public float Max()
+        {
+            float m = 0;
+            for (int i = 0; i < Count; i++) { float v = At(i); if (v > m) m = v; }
+            return m;
+        }
+    }
+
+    sealed class DriveRow
+    {
+        public string Name, Label;
+        public long Total, Free;
+    }
+
+    sealed class ProcRow
+    {
+        public string Name;
+        public long Mem;
+        public float Cpu;
+    }
+
+    sealed class Weather
+    {
+        public double Temp, Feels, Hi, Lo, Humidity, Pressure, Wind, WindDir, Uv, PrecipProb;
+        public int Code;
+        public bool IsDay;
+        public DateTime Sunrise, Sunset, Updated;
+    }
+
+    // サンプラースレッドと描画スレッドで共有する状態。読み書きは lock(このオブジェクト) で行う。
+    sealed class MeterState
+    {
+        public const int HistLen = 60;
+
+        public string CpuName = "CPU";
+        public float CpuTotal, CpuMHz;
+        public float[] Cores = new float[0];
+        public Hist[] CoreHist = new Hist[0];
+
+        public ulong RamTotal, RamAvail, PageTotal, PageUsed;
+
+        public bool GpuOk;
+        public DateTime GpuStamp;
+        public string GpuName = "GPU";
+        public float GpuUtil, GpuTemp, VramUsedMB, VramTotalMB, GpuPowerW, GpuPowerLimitW, GpuClock, GpuMemClock, GpuFan;
+        public Hist GpuUtilHist = new Hist(HistLen), GpuTempHist = new Hist(HistLen);
+
+        public string IntIp;
+        public double UpBps, DownBps, PeakBps;
+        public long SessUp, SessDown, TotUp, TotDown;
+        public long PingMs = -1;
+        public Hist UpHist = new Hist(HistLen), DownHist = new Hist(HistLen);
+
+        public List<DriveRow> Drives = new List<DriveRow>();
+        public double ReadBps, WriteBps;
+        public float DiskActive;
+        public Hist ReadHist = new Hist(HistLen), WriteHist = new Hist(HistLen);
+
+        public List<ProcRow> Procs = new List<ProcRow>();      // CPU 使用率の上位
+        public List<ProcRow> MemProcs = new List<ProcRow>();   // メモリ使用量の上位
+        public Hist ProcHist = new Hist(HistLen);
+
+        public Weather Weather;
+        public string WeatherError;
+    }
+
+    sealed class Sampler : IDisposable
+    {
+        public readonly MeterState S = new MeterState();
+
+        readonly Settings cfg;
+        readonly ManualResetEvent stopEvent = new ManualResetEvent(false);
+        Thread thread;
+
+        readonly PdhQuery pdh = new PdhQuery();
+        IntPtr hCores, hPerf, hFreq, hRead, hWrite, hIdle, hPage;
+        readonly List<string> coreNames = new List<string>(64);
+        readonly List<double> coreValues = new List<double>(64);
+        readonly List<KeyValuePair<int, float>> coreSorted = new List<KeyValuePair<int, float>>(64);
+        float nominalMHz;
+
+        long netRx = -1, netTx = -1;
+
+        Process smi;
+        IntPtr job = IntPtr.Zero;
+        DateTime smiRetryAt = DateTime.MinValue;
+
+        IntPtr procBuf = IntPtr.Zero;
+        int procBufLen;
+        Dictionary<long, long> procTimes = new Dictionary<long, long>();
+        long procStamp;
+
+        int pingBusy, weatherBusy;
+        DateTime weatherNext = DateTime.MinValue;
+
+        public Sampler(Settings cfg) { this.cfg = cfg; }
+
+        public void Start()
+        {
+            thread = new Thread(Loop);
+            thread.IsBackground = true;
+            thread.Name = "DeskMeter sampler";
+            thread.Priority = ThreadPriority.BelowNormal;
+            thread.Start();
+        }
+
+        public void Dispose()
+        {
+            stopEvent.Set();
+            KillSmi();
+            if (thread != null) thread.Join(1500);
+        }
+
+        public void RefreshWeatherNow()
+        {
+            lock (S) { S.Weather = null; S.WeatherError = null; }
+            weatherNext = DateTime.MinValue;
+        }
+
+        // ---------------------------------------------------------------- main loop
+
+        void Loop()
+        {
+            Init();
+            var sw = Stopwatch.StartNew();
+            long last = sw.ElapsedMilliseconds;
+            long nextProc = 0, nextDrives = 0, nextPing = 2000;
+            while (!stopEvent.WaitOne(0))
+            {
+                int interval = Math.Max(250, Math.Min(10000, cfg.IntervalMs));
+                long t0 = sw.ElapsedMilliseconds;
+                double dt = (t0 - last) / 1000.0;
+                last = t0;
+
+                Safe("cpu", SampleCpu);
+                Safe("mem", SampleMemory);
+                Safe("disk", SampleDiskIo);
+                try { SampleNet(dt); } catch (Exception ex) { Log.Write("net", ex); }
+                Safe("gpu", WatchSmi);
+                // 重めの処理は間隔が短くても一定時間ごとにしか行わない
+                if (t0 >= nextProc) { Safe("proc", SampleProcs); nextProc = t0 + Math.Max(2000, interval); }
+                if (t0 >= nextDrives) { Safe("drives", SampleDrives); nextDrives = t0 + Math.Max(5000, interval); }
+                if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
+                if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
+
+                int wait = interval - (int)(sw.ElapsedMilliseconds - t0);
+                if (wait < 50) wait = 50;
+                if (stopEvent.WaitOne(wait)) break;
+            }
+            pdh.Dispose();
+        }
+
+        static void Safe(string name, Action a)
+        {
+            try { a(); }
+            catch (Exception ex) { Log.Write(name, ex); }
+        }
+
+        void Init()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor\0"))
+                {
+                    if (k != null)
+                    {
+                        string name = Convert.ToString(k.GetValue("ProcessorNameString", "CPU"));
+                        name = name.Replace("(R)", "").Replace("(TM)", "").Replace("Intel ", "").Replace(" CPU", "").Trim();
+                        while (name.Contains("  ")) name = name.Replace("  ", " ");
+                        nominalMHz = Convert.ToSingle(k.GetValue("~MHz", 0), CultureInfo.InvariantCulture);
+                        lock (S) { S.CpuName = name; S.CpuMHz = nominalMHz; }
+                    }
+                }
+            }
+            catch (Exception ex) { Log.Write("init.cpuname", ex); }
+
+            StartSmi();
+
+            // パフォーマンスカウンター (PDH)。"% Processor Utility" はタスクマネージャーと同じ基準の使用率。
+            if (pdh.Open())
+            {
+                hCores = pdh.Add(@"\Processor Information(*)\% Processor Utility");
+                if (hCores == IntPtr.Zero) hCores = pdh.Add(@"\Processor Information(*)\% Processor Time");
+                if (hCores == IntPtr.Zero) hCores = pdh.Add(@"\Processor(*)\% Processor Time");
+                hPerf = pdh.Add(@"\Processor Information(_Total)\% Processor Performance");
+                hFreq = pdh.Add(@"\Processor Information(_Total)\Processor Frequency");
+                hRead = pdh.Add(@"\PhysicalDisk(_Total)\Disk Read Bytes/sec");
+                hWrite = pdh.Add(@"\PhysicalDisk(_Total)\Disk Write Bytes/sec");
+                hIdle = pdh.Add(@"\PhysicalDisk(_Total)\% Idle Time");
+                hPage = pdh.Add(@"\Paging File(_Total)\% Usage");
+                pdh.Collect();
+            }
+            else Log.Write("pdh", new InvalidOperationException("PdhOpenQuery failed"));
+        }
+
+        static float Val(double v)
+        {
+            return double.IsNaN(v) || double.IsInfinity(v) || v < 0 ? 0 : (float)v;
+        }
+
+        // ---------------------------------------------------------------- CPU
+
+        void SampleCpu()
+        {
+            pdh.Collect();   // このあと SampleMemory / SampleDiskIo も同じ収集結果を読む
+            int n = pdh.Array(hCores, coreNames, coreValues);
+            if (n == 0) return;
+
+            List<KeyValuePair<int, float>> list = coreSorted;
+            list.Clear();
+            float total = 0;
+            bool any = false;
+            for (int i = 0; i < n; i++)
+            {
+                string name = coreNames[i];
+                if (!double.IsNaN(coreValues[i])) any = true;
+                float v = Pct(Val(coreValues[i]));
+                if (string.Equals(name, "_Total", StringComparison.OrdinalIgnoreCase)) { total = v; continue; }
+                if (name.IndexOf("_Total", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                int group = 0, num = 0;
+                int comma = name.IndexOf(',');
+                if (comma >= 0)
+                {
+                    int.TryParse(name.Substring(0, comma), out group);
+                    int.TryParse(name.Substring(comma + 1), out num);
+                }
+                else int.TryParse(name, out num);
+                list.Add(new KeyValuePair<int, float>(group * 10000 + num, v));
+            }
+            if (!any) return;   // 初回は差分が無いので値が出ない
+            list.Sort(delegate(KeyValuePair<int, float> a, KeyValuePair<int, float> b) { return a.Key.CompareTo(b.Key); });
+
+            float mhz = nominalMHz;
+            float perf = Val(pdh.Value(hPerf)), freq = Val(pdh.Value(hFreq));
+            if (perf > 0 && freq > 0) mhz = perf * freq / 100f;
+
+            lock (S)
+            {
+                if (S.Cores.Length != list.Count)
+                {
+                    S.Cores = new float[list.Count];
+                    S.CoreHist = new Hist[list.Count];
+                    for (int i = 0; i < list.Count; i++) S.CoreHist[i] = new Hist(MeterState.HistLen);
+                }
+                for (int i = 0; i < list.Count; i++)
+                {
+                    S.Cores[i] = list[i].Value;
+                    S.CoreHist[i].Add(list[i].Value);
+                }
+                S.CpuTotal = total;
+                S.CpuMHz = mhz;
+            }
+        }
+
+        static float Pct(float v)
+        {
+            if (float.IsNaN(v) || float.IsInfinity(v) || v < 0) return 0;
+            return v > 100 ? 100 : v;
+        }
+
+        // ---------------------------------------------------------------- memory / disk
+
+        void SampleMemory()
+        {
+            var m = new Native.MEMORYSTATUSEX();
+            m.dwLength = (uint)Marshal.SizeOf(typeof(Native.MEMORYSTATUSEX));
+            if (!Native.GlobalMemoryStatusEx(ref m)) return;
+            ulong pageTotal = m.ullTotalPageFile > m.ullTotalPhys ? m.ullTotalPageFile - m.ullTotalPhys : 0;
+            float pagePct = Val(pdh.Value(hPage));
+            lock (S)
+            {
+                S.RamTotal = m.ullTotalPhys;
+                S.RamAvail = m.ullAvailPhys;
+                S.PageTotal = pageTotal;
+                S.PageUsed = (ulong)(pageTotal * (double)Math.Min(100f, pagePct) / 100.0);
+            }
+        }
+
+        void SampleDiskIo()
+        {
+            float r = Val(pdh.Value(hRead)), w = Val(pdh.Value(hWrite));
+            double idle = pdh.Value(hIdle);
+            float active = double.IsNaN(idle) ? 0 : Pct(100f - (float)idle);
+            lock (S)
+            {
+                S.ReadBps = r; S.WriteBps = w; S.DiskActive = active;
+                S.ReadHist.Add(r); S.WriteHist.Add(w);
+            }
+        }
+
+        void SampleDrives()
+        {
+            var rows = new List<DriveRow>();
+            foreach (DriveInfo d in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (d.DriveType != DriveType.Fixed || !d.IsReady) continue;
+                    var row = new DriveRow();
+                    row.Name = d.Name.TrimEnd('\\');
+                    row.Label = d.VolumeLabel;
+                    row.Total = d.TotalSize;
+                    row.Free = d.TotalFreeSpace;
+                    rows.Add(row);
+                }
+                catch { }
+            }
+            lock (S) S.Drives = rows;
+        }
+
+        // ---------------------------------------------------------------- network
+
+        void SampleNet(double dt)
+        {
+            long rx = 0, tx = 0;
+            string ip = null;
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+                IPInterfaceProperties props = ni.GetIPProperties();
+                if (props.GatewayAddresses.Count == 0) continue;   // 仮想スイッチなど外に出ないアダプターは除外
+                IPv4InterfaceStatistics st = ni.GetIPv4Statistics();
+                rx += st.BytesReceived;
+                tx += st.BytesSent;
+                if (ip == null)
+                {
+                    foreach (UnicastIPAddressInformation u in props.UnicastAddresses)
+                    {
+                        if (u.Address.AddressFamily == AddressFamily.InterNetwork) { ip = u.Address.ToString(); break; }
+                    }
+                }
+            }
+
+            lock (S)
+            {
+                double down = 0, up = 0;
+                if (netRx >= 0 && rx >= netRx && tx >= netTx && dt > 0.05)
+                {
+                    down = (rx - netRx) / dt;
+                    up = (tx - netTx) / dt;
+                    S.SessDown += rx - netRx;
+                    S.SessUp += tx - netTx;
+                }
+                netRx = rx; netTx = tx;
+                S.DownBps = down; S.UpBps = up;
+                if (down > S.PeakBps) S.PeakBps = down;
+                if (up > S.PeakBps) S.PeakBps = up;
+                S.TotDown = rx; S.TotUp = tx;
+                S.IntIp = ip;
+                S.DownHist.Add((float)down);
+                S.UpHist.Add((float)up);
+            }
+        }
+
+        void StartPing()
+        {
+            string host = cfg.PingHost;
+            if (string.IsNullOrWhiteSpace(host)) { lock (S) S.PingMs = -1; return; }
+            if (Interlocked.CompareExchange(ref pingBusy, 1, 0) != 0) return;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                long ms = -1;
+                try
+                {
+                    using (var p = new Ping())
+                    {
+                        PingReply r = p.Send(host, 1500);
+                        if (r != null && r.Status == IPStatus.Success) ms = r.RoundtripTime;
+                    }
+                }
+                catch { }
+                lock (S) S.PingMs = ms;
+                Interlocked.Exchange(ref pingBusy, 0);
+            });
+        }
+
+        // ---------------------------------------------------------------- processes
+
+        // NtQuerySystemInformation(SystemProcessInformation) で全プロセスを1回のシステムコールで取得する。
+        // オフセットは x64 の SYSTEM_PROCESS_INFORMATION のもの (このアプリは x64 でビルドする)。
+        void SampleProcs()
+        {
+            const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
+            if (procBuf == IntPtr.Zero)
+            {
+                procBufLen = 1 << 20;
+                procBuf = Marshal.AllocHGlobal(procBufLen);
+            }
+            int need, status, guard = 0;
+            while ((status = Native.NtQuerySystemInformation(5, procBuf, procBufLen, out need)) == STATUS_INFO_LENGTH_MISMATCH && guard++ < 5)
+            {
+                Marshal.FreeHGlobal(procBuf);
+                procBufLen = need + (1 << 18);
+                procBuf = Marshal.AllocHGlobal(procBufLen);
+            }
+            if (status != 0) return;
+
+            long stamp = Stopwatch.GetTimestamp();
+            double elapsed = procStamp == 0 ? 0 : (stamp - procStamp) * 1e7 / Stopwatch.Frequency;   // 100ns 単位
+            procStamp = stamp;
+
+            int cpus = Environment.ProcessorCount;
+            var times = new Dictionary<long, long>(512);
+            var agg = new Dictionary<string, ProcRow>(256, StringComparer.OrdinalIgnoreCase);
+            long basePtr = procBuf.ToInt64(), off = 0;
+            float total = 0;
+            while (true)
+            {
+                IntPtr p = new IntPtr(basePtr + off);
+                int next = Marshal.ReadInt32(p, 0x00);
+                long pid = Marshal.ReadInt64(p, 0x50);
+                if (pid != 0)
+                {
+                    long priv = Marshal.ReadInt64(p, 0x08);
+                    long t = Marshal.ReadInt64(p, 0x28) + Marshal.ReadInt64(p, 0x30);
+                    int nameLen = (ushort)Marshal.ReadInt16(p, 0x38);
+                    IntPtr nameBuf = Marshal.ReadIntPtr(p, 0x40);
+                    string name = nameLen > 0 && nameBuf != IntPtr.Zero ? Marshal.PtrToStringUni(nameBuf, nameLen / 2) : "System";
+                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
+
+                    times[pid] = t;
+                    float cpu = 0;
+                    long old;
+                    if (elapsed > 0 && procTimes.TryGetValue(pid, out old) && t >= old)
+                        cpu = (float)((t - old) / elapsed * 100.0 / cpus);
+
+                    ProcRow row;
+                    if (!agg.TryGetValue(name, out row))
+                    {
+                        row = new ProcRow();
+                        row.Name = name;
+                        agg[name] = row;
+                    }
+                    row.Cpu += cpu;
+                    row.Mem += priv;
+                    total += cpu;
+                }
+                if (next == 0) break;
+                off += next;
+            }
+            procTimes = times;
+
+            var list = new List<ProcRow>(agg.Values);
+            list.Sort(delegate(ProcRow a, ProcRow b) { return b.Mem.CompareTo(a.Mem); });
+            var byMem = list.GetRange(0, Math.Min(8, list.Count));
+            list.Sort(delegate(ProcRow a, ProcRow b)
+            {
+                int c = b.Cpu.CompareTo(a.Cpu);
+                return c != 0 ? c : b.Mem.CompareTo(a.Mem);
+            });
+            if (list.Count > 10) list.RemoveRange(10, list.Count - 10);
+            lock (S)
+            {
+                S.Procs = list;
+                S.MemProcs = byMem;
+                S.ProcHist.Add(Math.Min(100f, total));
+            }
+        }
+
+        // ---------------------------------------------------------------- GPU (nvidia-smi)
+
+        void StartSmi()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("nvidia-smi.exe",
+                    "-i 0 --query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total,power.draw,power.limit,clocks.gr,clocks.mem,fan.speed --format=csv,noheader,nounits -l 1");
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                var p = new Process();
+                p.StartInfo = psi;
+                p.OutputDataReceived += OnSmiLine;
+                p.Start();
+                try
+                {
+                    // このアプリが異常終了しても nvidia-smi が残らないようにジョブに入れる
+                    if (job == IntPtr.Zero)
+                    {
+                        job = Native.CreateJobObject(IntPtr.Zero, null);
+                        var info = new Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+                        info.Basic.LimitFlags = 0x2000;   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                        Native.SetInformationJobObject(job, 9, ref info, Marshal.SizeOf(typeof(Native.JOBOBJECT_EXTENDED_LIMIT_INFORMATION)));
+                    }
+                    Native.AssignProcessToJobObject(job, p.Handle);
+                    p.PriorityClass = ProcessPriorityClass.BelowNormal;
+                }
+                catch { }
+                p.BeginOutputReadLine();
+                smi = p;
+            }
+            catch (Exception ex)
+            {
+                smi = null;
+                Log.Write("nvidia-smi", ex);
+            }
+            smiRetryAt = DateTime.Now.AddSeconds(30);
+        }
+
+        void WatchSmi()
+        {
+            bool dead = smi == null || smi.HasExited;
+            if (dead && DateTime.Now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
+            lock (S)
+            {
+                if (S.GpuOk && (DateTime.Now - S.GpuStamp).TotalSeconds > 6) S.GpuOk = false;
+                // 履歴は他のグラフと同じ間隔で積む
+                S.GpuUtilHist.Add(S.GpuOk ? S.GpuUtil : 0);
+                S.GpuTempHist.Add(S.GpuOk ? S.GpuTemp : 0);
+            }
+        }
+
+        void KillSmi()
+        {
+            try
+            {
+                Process p = smi;
+                smi = null;
+                if (p != null && !p.HasExited) p.Kill();
+            }
+            catch { }
+        }
+
+        void OnSmiLine(object sender, DataReceivedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(e.Data)) return;
+            string[] f = e.Data.Split(',');
+            if (f.Length < 10) return;
+            lock (S)
+            {
+                string name = f[0].Trim();
+                if (name.StartsWith("NVIDIA ", StringComparison.OrdinalIgnoreCase)) name = name.Substring(7);
+                S.GpuName = name;
+                S.GpuUtil = Num(f[1]);
+                S.GpuTemp = Num(f[2]);
+                S.VramUsedMB = Num(f[3]);
+                S.VramTotalMB = Num(f[4]);
+                S.GpuPowerW = Num(f[5]);
+                S.GpuPowerLimitW = Num(f[6]);
+                S.GpuClock = Num(f[7]);
+                S.GpuMemClock = Num(f[8]);
+                S.GpuFan = Num(f[9]);
+                S.GpuOk = !float.IsNaN(S.GpuUtil);
+                S.GpuStamp = DateTime.Now;
+            }
+        }
+
+        static float Num(string s)
+        {
+            float v;
+            return float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : float.NaN;
+        }
+
+        // ---------------------------------------------------------------- weather (Open-Meteo)
+
+        void StartWeather()
+        {
+            if (Interlocked.CompareExchange(ref weatherBusy, 1, 0) != 0) return;
+            weatherNext = DateTime.Now.AddMinutes(15);
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    Weather w = FetchWeather();
+                    lock (S) { S.Weather = w; S.WeatherError = null; }
+                }
+                catch (Exception ex)
+                {
+                    lock (S) S.WeatherError = ex.Message;
+                    weatherNext = DateTime.Now.AddMinutes(2);
+                }
+                Interlocked.Exchange(ref weatherBusy, 0);
+            });
+        }
+
+        Weather FetchWeather()
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            string url = string.Format(CultureInfo.InvariantCulture,
+                "https://api.open-meteo.com/v1/forecast?latitude={0:0.###}&longitude={1:0.###}" +
+                "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m" +
+                "&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max" +
+                "&hourly=precipitation_probability&forecast_hours=1" +
+                "&timezone=auto&forecast_days=1", cfg.Latitude, cfg.Longitude);
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.Timeout = 10000;
+            req.UserAgent = "DeskMeter/1.0";
+            string json;
+            using (WebResponse resp = req.GetResponse())
+            using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                json = sr.ReadToEnd();
+
+            var root = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json);
+            var cur = (Dictionary<string, object>)root["current"];
+            var daily = (Dictionary<string, object>)root["daily"];
+
+            var w = new Weather();
+            w.Temp = D(Get(cur, "temperature_2m"));
+            w.Feels = D(Get(cur, "apparent_temperature"));
+            w.Humidity = D(Get(cur, "relative_humidity_2m"));
+            w.Pressure = D(Get(cur, "pressure_msl"));
+            w.Wind = D(Get(cur, "wind_speed_10m"));
+            w.WindDir = D(Get(cur, "wind_direction_10m"));
+            double code = D(Get(cur, "weather_code"));
+            w.Code = double.IsNaN(code) ? 0 : (int)code;
+            w.IsDay = D(Get(cur, "is_day")) != 0;
+            w.Hi = D(First(daily, "temperature_2m_max"));
+            w.Lo = D(First(daily, "temperature_2m_min"));
+            w.Uv = D(First(daily, "uv_index_max"));
+            // 降水確率は「今の1時間」の値を優先し、無ければ当日の最大値
+            object hourly;
+            w.PrecipProb = root.TryGetValue("hourly", out hourly) && hourly is Dictionary<string, object>
+                ? D(First((Dictionary<string, object>)hourly, "precipitation_probability")) : double.NaN;
+            if (double.IsNaN(w.PrecipProb)) w.PrecipProb = D(First(daily, "precipitation_probability_max"));
+            w.Sunrise = Time(First(daily, "sunrise"));
+            w.Sunset = Time(First(daily, "sunset"));
+            w.Updated = DateTime.Now;
+            return w;
+        }
+
+        static object Get(Dictionary<string, object> d, string key)
+        {
+            object o;
+            return d.TryGetValue(key, out o) ? o : null;
+        }
+
+        static object First(Dictionary<string, object> d, string key)
+        {
+            object[] a = Get(d, key) as object[];
+            return a != null && a.Length > 0 ? a[0] : null;
+        }
+
+        static double D(object o)
+        {
+            if (o == null) return double.NaN;
+            try { return Convert.ToDouble(o, CultureInfo.InvariantCulture); }
+            catch { return double.NaN; }
+        }
+
+        static DateTime Time(object o)
+        {
+            DateTime t;
+            return o != null && DateTime.TryParse(Convert.ToString(o), CultureInfo.InvariantCulture, DateTimeStyles.None, out t) ? t : DateTime.MinValue;
+        }
+    }
+}
