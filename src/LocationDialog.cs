@@ -93,6 +93,12 @@ namespace DeskMeter
             // 3行目: 候補一覧
             list.Margin = new Thickness(0, 0, 0, 6);
             list.MinHeight = 120;
+            // 候補のダブルクリック / Enter で決定
+            list.MouseDoubleClick += delegate { if (list.SelectedItem != null) Accept(); };
+            list.KeyDown += delegate(object s, System.Windows.Input.KeyEventArgs e)
+            {
+                if (e.Key == System.Windows.Input.Key.Enter && list.SelectedItem != null) { Accept(); e.Handled = true; }
+            };
             list.SelectionChanged += delegate
             {
                 var p = list.SelectedItem as Place;
@@ -106,6 +112,7 @@ namespace DeskMeter
             // 4行目: 状態表示
             status.Margin = new Thickness(0, 0, 0, 6);
             status.Foreground = SystemColors.GrayTextBrush;
+            status.TextWrapping = TextWrapping.Wrap;   // エラーの文は長いことがある
             Put(root, status, 3);
 
             // 5行目: 緯度・経度・表示名
@@ -195,6 +202,7 @@ namespace DeskMeter
                 List<Place> found = null;
                 string error = null;
                 try { found = Geocode(q); }
+                catch (WebException wex) { error = NetError(wex); }
                 catch (Exception ex) { error = ex.Message; }
                 disp.BeginInvoke(new Action(delegate
                 {
@@ -203,9 +211,29 @@ namespace DeskMeter
                     list.Items.Clear();
                     if (error != null) { status.Text = "検索できません: " + error; return; }
                     foreach (Place p in found) list.Items.Add(p);
-                    status.Text = found.Count == 0 ? "見つかりませんでした。" : found.Count + " 件の候補。選ぶと緯度・経度に入ります。";
+                    // 先頭の候補を選んでおく (選ばずに OK を押して前の座標のまま保存されるのを防ぐ)
+                    if (found.Count > 0) list.SelectedIndex = 0;
+                    status.Text = found.Count == 0 ? "見つかりませんでした。地名の表記を変えるか、英語で試してください。" : found.Count + " 件の候補。先頭を入れました。別の候補はクリックで選べます (ダブルクリックで決定)。";
                 }));
             });
+        }
+
+        // 通信の失敗を分かる言葉にする (API のエラー本文に理由があればそれを出す)
+        static string NetError(WebException wex)
+        {
+            string reason = Sampler.ReadErrorReason(wex);
+            if (reason != null) return reason;
+            switch (wex.Status)
+            {
+                case WebExceptionStatus.NameResolutionFailure:
+                case WebExceptionStatus.ProxyNameResolutionFailure:
+                case WebExceptionStatus.ConnectFailure:
+                    return "ネットワークに接続できません。回線やプロキシの設定を確認してください。";
+                case WebExceptionStatus.Timeout:
+                    return "応答がありません (10 秒でタイムアウト)。";
+                default:
+                    return wex.Message;
+            }
         }
 
         static List<Place> Geocode(string q)

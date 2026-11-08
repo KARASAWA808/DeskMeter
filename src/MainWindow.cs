@@ -115,7 +115,7 @@ namespace DeskMeter
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout;
 
         public MainWindow(string snapshotPath)
         {
@@ -249,21 +249,21 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- window placement (per monitor)
 
-        internal static WF.Screen FindScreen(string device) { return FindScreen(device, null); }
+        internal static WF.Screen FindScreen(string device) { return FindScreen(device, null, null); }
 
-        // モニターを名前 (\\.\DISPLAYn) と、位置・大きさの両方で探す。ドックの抜き差しやドライバー更新で番号が振り直されても、
-        // 同じ位置・大きさのモニターがあればそちらを選ぶ。解像度を変えただけなら名前で見つかる
-        internal static WF.Screen FindScreen(string device, string rect)
+        // モニターを探す。優先順は モニター固有の ID (番号の振り直しや配置の入れ替えでも変わらない) → 名前 (\\.\DISPLAYn) → 位置と大きさ。
+        // ID の無い古い設定で番号が振り直されたときは別のモニターに出ることがあるが、一度動かせば ID が保存される
+        internal static WF.Screen FindScreen(string device, string rect, string id)
         {
             WF.Screen[] all = WF.Screen.AllScreens;
-            WF.Screen byName = null, byRect = null;
+            WF.Screen byId = null, byName = null, byRect = null;
             foreach (WF.Screen s in all)
             {
+                if (byId == null && id != null && string.Equals(Native.MonitorId(s.DeviceName), id, StringComparison.OrdinalIgnoreCase)) byId = s;
                 if (byName == null && device != null && string.Equals(s.DeviceName, device, StringComparison.OrdinalIgnoreCase)) byName = s;
                 if (byRect == null && rect != null && RectKey(s) == rect) byRect = s;
             }
-            if (byName != null && byRect != null && byName != byRect) return byRect;   // 番号が入れ替わった
-            return byName ?? byRect ?? WF.Screen.PrimaryScreen ?? all[0];
+            return byId ?? byName ?? byRect ?? WF.Screen.PrimaryScreen ?? all[0];
         }
 
         internal static string RectKey(WF.Screen s)
@@ -279,7 +279,7 @@ namespace DeskMeter
             try
             {
                 MigrateLegacyPosition();
-                WF.Screen scr = FindScreen(cfg.Monitor, cfg.MonitorRect);
+                WF.Screen scr = FindScreen(cfg.Monitor, cfg.MonitorRect, cfg.MonitorId);
                 System.Drawing.Rectangle wa = scr.WorkingArea;
                 double scale = Native.DpiScale(scr.Bounds);
                 double dipW = ActualWidth > 0 ? ActualWidth : MeterView.WidthFor(cfg) * cfg.Scale;
@@ -318,6 +318,7 @@ namespace DeskMeter
                 int dl = r.Left - wa.Left, dr = wa.Right - r.Right, dt = r.Top - wa.Top, db = wa.Bottom - r.Bottom;
                 cfg.Monitor = scr.DeviceName;
                 cfg.MonitorRect = RectKey(scr);
+                cfg.MonitorId = Native.MonitorId(scr.DeviceName);
                 cfg.AnchorH = dl <= dr ? "left" : "right";
                 cfg.AnchorV = dt <= db ? "top" : "bottom";
                 cfg.MonX = Math.Min(dl, dr);
@@ -342,6 +343,7 @@ namespace DeskMeter
             int dl = (int)cfg.Left.Value - wa.Left, dr = wa.Right - ((int)cfg.Left.Value + w);
             cfg.Monitor = scr.DeviceName;
             cfg.MonitorRect = RectKey(scr);
+            cfg.MonitorId = Native.MonitorId(scr.DeviceName);
             cfg.AnchorH = dl <= dr ? "left" : "right";   // 近いほうの端を基準にする
             cfg.AnchorV = "top";
             cfg.MonX = Math.Max(0, Math.Min(dl, dr));
@@ -355,6 +357,7 @@ namespace DeskMeter
         {
             cfg.Monitor = device;
             cfg.MonitorRect = RectKey(FindScreen(device));
+            cfg.MonitorId = Native.MonitorId(device);
             cfg.AnchorH = "right";
             cfg.AnchorV = "top";
             cfg.MonX = EdgeMargin;
@@ -706,6 +709,8 @@ namespace DeskMeter
 
             miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
             menu.Items.Add(miEdit);
+            miUndoLayout = Item("配置を元に戻す (直前の移動を取り消す)", delegate { view.UndoDrop(); });
+            menu.Items.Add(miUndoLayout);
             BuildLayoutMenus();
 
             menu.Items.Add(new WF.ToolStripSeparator());
@@ -765,6 +770,8 @@ namespace DeskMeter
                     else if (mi.Tag is string) mi.Checked = cfg.HasPanel((string)mi.Tag);
                 }
                 miEdit.Checked = view.EditMode;
+                miUndoLayout.Enabled = view.EditMode && view.CanUndo;
+                miUndoLayout.Visible = view.EditMode;
                 foreach (WF.ToolStripMenuItem mi in miShadow.DropDownItems) mi.Checked = (string)mi.Tag == cfg.TextShadow;
                 foreach (WF.ToolStripMenuItem mi in miMascotPlace.DropDownItems) mi.Checked = (string)mi.Tag == cfg.MascotPlacement;
                 foreach (WF.ToolStripMenuItem mi in miMascotSize.DropDownItems) mi.Checked = (int)mi.Tag == cfg.MascotSize;

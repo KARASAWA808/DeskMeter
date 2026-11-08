@@ -1194,7 +1194,7 @@ namespace DeskMeter
             });
         }
 
-        static string ReadErrorReason(WebException wex)
+        internal static string ReadErrorReason(WebException wex)
         {
             try
             {

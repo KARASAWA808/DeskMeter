@@ -90,6 +90,14 @@ namespace DeskMeter
         Point dragStart, dragPos;
         bool dragging;
         int dropCol, dropIndex;      // dropCol = -1: 左に新しい列, Layout.Count: 右に新しい列
+        // 移動の取り消し用に、移動前の配置を積んでおく (配置編集を始めるたびに空にする)
+        readonly List<List<List<string>>> undoStack = new List<List<List<string>>>();
+        // 落とした直後の 1 フレームで、落としたパネルが画面外に出ていないか確かめる (出ていれば元に戻す)
+        string pendingDrop;
+        List<List<string>> pendingBefore;
+        bool pendingWasOver;
+        long dropRefusedAt;
+        public bool CanUndo { get { return undoStack.Count > 0; } }
         public event Action LayoutChanged;
         // パネルのダブルクリック (パネルID, 補助情報: ドライブ名など)。配置編集中は起きない
         public event Action<string, string> PanelActivated;
@@ -122,6 +130,8 @@ namespace DeskMeter
                 editMode = value;
                 dragId = null;
                 dragging = false;
+                undoStack.Clear();
+                pendingDrop = null;
                 if (IsMouseCaptured) ReleaseMouseCapture();
                 InvalidateVisual();
             }
@@ -209,8 +219,8 @@ namespace DeskMeter
         void ComputeDrop(Point p)
         {
             int cols = cfg.Layout.Count;
-            // 列数が上限なら新しい列は作らず、最寄りの列へ入れる
-            bool canAdd = cols < Settings.MaxColumns;
+            // 列数が上限なら新しい列は作らず、最寄りの列へ入れる (動かすパネルが列に 1 つだけなら、その列が消えるので作れる)
+            bool canAdd = cols < Settings.MaxColumns || SourceColumnCount(dragId) == 1;
             // 立ち絵の分だけ列がずれているので補正する
             double px = p.X - (cfg.MascotPlacement == "left" ? sideExtra : 0);
             double w = contentW - sideExtra;
@@ -225,14 +235,69 @@ namespace DeskMeter
             }
         }
 
+        int SourceColumnCount(string id)
+        {
+            if (id == null) return 0;
+            foreach (List<string> col in cfg.Layout) if (col.Contains(id)) return col.Count;
+            return 0;
+        }
+
+        static List<List<string>> CloneLayout(List<List<string>> l)
+        {
+            var c = new List<List<string>>(l.Count);
+            foreach (List<string> col in l) c.Add(new List<string>(col));
+            return c;
+        }
+
         void ApplyDrop(string id)
         {
+            List<List<string>> before = CloneLayout(cfg.Layout);
+            bool wasOver = false;
+            if (ScreenLimitH > 0 && SinglePanel == null)
+                foreach (PanelBox b in boxes) if (b.Id == id && b.R.Bottom > ScreenLimitH) wasOver = true;
             List<List<string>> layout = cfg.Layout;
             int src = -1;
             for (int i = 0; i < layout.Count; i++) if (layout[i].Remove(id)) src = i;
             if (dropCol < 0) layout.Insert(0, new List<string>(new[] { id }));
             else if (dropCol >= layout.Count) layout.Add(new List<string>(new[] { id }));
             else layout[dropCol].Insert(Math.Min(dropIndex, layout[dropCol].Count), id);
+            cfg.CleanLayout();
+            // 落とした結果は次の描画で高さが決まるので、画面外に出たかの確認はそのときに行う
+            pendingDrop = id;
+            pendingBefore = before;
+            pendingWasOver = wasOver;
+            Relayout();
+            if (LayoutChanged != null) LayoutChanged();
+        }
+
+        // 落とした直後の描画で呼ぶ。落としたパネルが画面外に出たなら (元から出ていた場合を除く) 移動前に戻し、そうでなければ取り消し用に積む
+        void CheckPendingDrop()
+        {
+            if (pendingDrop == null) return;
+            string id = pendingDrop;
+            List<List<string>> before = pendingBefore;
+            pendingDrop = null;
+            pendingBefore = null;
+            bool nowOver = false;
+            if (ScreenLimitH > 0 && SinglePanel == null)
+                foreach (PanelBox b in boxes) if (b.Id == id && b.R.Bottom > ScreenLimitH) nowOver = true;
+            if (nowOver && !pendingWasOver)
+            {
+                cfg.Layout = before;
+                dropRefusedAt = (long)Native.GetTickCount64();
+                Dispatcher.BeginInvoke(new Action(delegate { cfg.CleanLayout(); Relayout(); if (LayoutChanged != null) LayoutChanged(); }));
+                return;
+            }
+            undoStack.Add(before);
+            if (undoStack.Count > 50) undoStack.RemoveAt(0);
+        }
+
+        public void UndoDrop()
+        {
+            if (undoStack.Count == 0) return;
+            cfg.Layout = undoStack[undoStack.Count - 1];
+            undoStack.RemoveAt(undoStack.Count - 1);
+            pendingDrop = null;
             cfg.CleanLayout();
             Relayout();
             if (LayoutChanged != null) LayoutChanged();
@@ -322,6 +387,7 @@ namespace DeskMeter
                 dc.DrawRoundedRectangle(sk.Accent1, null, gr, 4, 4);
                 dc.DrawText(ghost, new Point(gr.X + 7, gr.Y + 2));
             }
+            CheckPendingDrop();
             // 画面 (作業領域) の下端。ここより下に伸びた列は画面外になるので赤い線と枠で知らせる
             bool over = false;
             if (ScreenLimitH > 0 && SinglePanel == null)
@@ -346,7 +412,8 @@ namespace DeskMeter
             }
             // 案内 (先頭のパネルに重ならないよう下端に出す)
             string hint = "配置編集中: ドラッグで移動 / 左右の外側へ落とすと新しい列 / 右クリック→「配置の編集」で終了";
-            if (over) hint += "  ※ 赤枠のパネルは画面に収まりません (CPU の 2 列表示や別の列へ)";
+            if (over) hint += "  ※ 赤枠のパネルは画面に収まりません (「コアを2列で表示」や別の列へ)";
+            if ((long)Native.GetTickCount64() - dropRefusedAt < 3000) hint += "  ※ 画面に収まらないので元の位置に戻しました";
             if (dragging && dragId != null) hint += string.Format(CultureInfo.InvariantCulture, "  [列 {0} / 位置 {1}]", dropCol < 0 ? "新(左)" : dropCol >= cfg.Layout.Count ? "新(右)" : (dropCol + 1).ToString(CultureInfo.InvariantCulture), dropIndex + 1);
             FormattedText ht = Make(hint, 12, Brushes.White, TfB);
             ht.MaxTextWidth = Math.Max(60, contentW - 24);
@@ -1013,7 +1080,30 @@ namespace DeskMeter
                     }
                 }
             }
-            return y + 6 * ch;
+            y += 6 * ch;
+            // その月の祝日名を 1 行で (赤い日が何の日か分かるように)
+            if (cfg.ShowHolidays)
+            {
+                string holText = MonthHolidayNames(today);
+                if (holText.Length > 0) { T(dc, holText, x + ColW / 2, y, 10.5, sk.CalSun, 2, false, ColW - 4); y += 15; }
+            }
+            return y;
+        }
+
+        int holNamesYm;
+        string holNames = "";
+        string MonthHolidayNames(DateTime today)
+        {
+            int ym = today.Year * 100 + today.Month;
+            if (ym != holNamesYm)
+            {
+                holNamesYm = ym;
+                string t = "";
+                foreach (KeyValuePair<DateTime, string> kv in Holidays.Of(today.Year))
+                    if (kv.Key.Month == today.Month) t += (t.Length > 0 ? "  " : "") + kv.Key.Day.ToString(Inv) + " " + kv.Value;
+                holNames = t;
+            }
+            return holNames;
         }
 
         double DrawDateTile(DrawingContext dc, double x, double y)
@@ -1024,7 +1114,7 @@ namespace DeskMeter
             T(dc, today.ToString("dddd", Ja), x + ColW / 2, y + 8, 17, sk.DateTileText, 2);
             FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfL);
             dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, y + 18));
-            T(dc, today.ToString("M月 yyyy", Ja), x + ColW / 2, y + th - 28, 15, sk.DateTileText, 2);
+            T(dc, today.ToString("yyyy年 M月", Ja), x + ColW / 2, y + th - 28, 15, sk.DateTileText, 2);
             return y + th;
         }
 

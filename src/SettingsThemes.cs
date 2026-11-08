@@ -13,7 +13,8 @@ namespace DeskMeter
         {
             public string Id;
             public string Monitor;
-            public string Rect;   // モニターの位置と大きさ (番号が振り直されたときの照合用)
+            public string Rect;   // モニターの位置と大きさ (名前でも ID でも見つからないときの照合用)
+            public string MonitorId;   // モニター固有の ID (最優先で照合)
             public int X, Y;
         }
 

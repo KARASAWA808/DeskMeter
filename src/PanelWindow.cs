@@ -121,7 +121,7 @@ namespace DeskMeter
             try
             {
                 Settings.FloatPos p = cfg.EnsureFloatPos(Id);
-                WF.Screen scr = MainWindow.FindScreen(p.Monitor, p.Rect);
+                WF.Screen scr = MainWindow.FindScreen(p.Monitor, p.Rect, p.MonitorId);
                 System.Drawing.Rectangle wa = scr.WorkingArea;
                 // 大きさは WPF のレイアウト結果から (SizeChanged の時点では HWND の大きさがまだ古い)
                 double scale = Native.DpiScale(scr.Bounds);
@@ -144,6 +144,7 @@ namespace DeskMeter
                 Settings.FloatPos p = cfg.EnsureFloatPos(Id);
                 p.Monitor = scr.DeviceName;
                 p.Rect = MainWindow.RectKey(scr);
+                p.MonitorId = Native.MonitorId(scr.DeviceName);
                 p.X = r.Left - scr.WorkingArea.Left;
                 p.Y = r.Top - scr.WorkingArea.Top;
                 cfg.Save();

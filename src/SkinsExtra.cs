@@ -26,7 +26,7 @@ namespace DeskMeter
             s.Mascot = "bunny"; s.MascotBody = B("#FFFFFF"); s.MascotAccent = B("#FFB3CC"); s.MascotEye = B("#4A3340");
             s.Title = B("#5A3A4A"); s.Text1 = B("#D9488A"); s.Text2 = B("#6B5BD2");
             s.Accent1 = B("#3FAF80"); s.Accent2 = B("#FF8A5C"); s.Lime = B("#3FAF80");
-            s.Warn = B("#FF8A5C"); s.Danger = B("#E8365D"); s.Muted = B("#7F6E78"); s.Dim = B("#D8CBD1");
+            s.Warn = B("#FF8A5C"); s.Danger = B("#E8365D"); s.Muted = B("#7F6E78"); s.Dim = B("#B596A5");   // 前後の月の日付。薄すぎて見えなかったので濃くした
             s.Magenta = B("#D94FB2"); s.Violet = B("#8C6BE0"); s.Blue = B("#5B8DEF");
             s.Track = B("#F6E1E9"); s.GraphBg = B("#FFF7FA"); s.Separator = B("#F2A7C3");
             s.GraphBorder = Thin("#F3CFDC"); s.GraphGrid = Thin("#FBE9F0");
@@ -56,7 +56,7 @@ namespace DeskMeter
             s.Mascot = "cat"; s.MascotBody = B("#FFFFFF"); s.MascotAccent = B("#FFC2D1"); s.MascotEye = B("#33474A");
             s.Title = B("#2F4A4A"); s.Text1 = B("#E58A2E"); s.Text2 = B("#2B9EB3");
             s.Accent1 = B("#3DB36D"); s.Accent2 = B("#F5742E"); s.Lime = B("#3DB36D");
-            s.Warn = B("#F5742E"); s.Danger = B("#E85C7A"); s.Muted = B("#6B8283"); s.Dim = B("#CFE0DE");
+            s.Warn = B("#F5742E"); s.Danger = B("#E85C7A"); s.Muted = B("#6B8283"); s.Dim = B("#86A8A3");
             s.Magenta = B("#D96BC0"); s.Violet = B("#7E7BE0"); s.Blue = B("#3C87E0");
             s.Track = B("#E3F2EE"); s.GraphBg = B("#F6FCFA"); s.Separator = B("#8FD9C8");
             s.GraphBorder = Thin("#CFEAE3"); s.GraphGrid = Thin("#EAF6F2");

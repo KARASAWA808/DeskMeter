@@ -23,7 +23,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 ## 見た目のカスタマイズ
 
 - **スキン** 12 種（Classic / Cyberpunk / Retro / Light / Kawaii Pink / Kawaii Mint / Synthwave / Matrix / Nord / Dracula / Frost / Notebook）。`skins\*.json` で自作もできます（`help\custom-skin.html`）。
-- **配置の編集**: 右クリック →「配置の編集」でパネルをドラッグして並べ替え。列は最大 6 つ。
+- **配置の編集**: 右クリック →「配置の編集」でパネルをドラッグして並べ替え。列は最大 6 つ。画面に収まらない移動は元に戻され、「配置を元に戻す」で直前の移動を取り消せます。
 - **パネルの切り離し**: パネルごとに独立ウィンドウにして、別モニターにも置けます。
 - **配置プリセット** と **テーマ**（スキン・配置・画像などの一式を保存・切替）。
 - **透明モード**: 背景の不透明度 0% ＋ 文字の縁取りで、壁紙の上に文字だけを浮かせられます。
@@ -122,7 +122,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `clock` `calendar` `datetile` `weather`。最大 6 列 |
 | `CompactCores` | `false` | コアごとの使用率を 2 列に詰める |
 | `Floating` / `FloatPositions` | `[]` | 切り離したパネルの ID と、その位置（モニター名と位置・大きさ、作業領域の左上からのピクセル） |
-| `Monitor` / `MonitorRect` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか。`MonitorRect` はモニターの位置と大きさで、番号が振り直されても同じモニターを探すのに使います |
+| `Monitor` / `MonitorId` / `MonitorRect` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか。`MonitorId`（モニター固有の ID）と `MonitorRect`（位置と大きさ）は、モニターの番号が振り直されても同じモニターを探すためのもので、自動で書かれます |
 | `BackgroundImage` / `BackgroundImageOpacity` | `""` / `0.35` | 背景画像（絶対パス、または exe のフォルダーからの相対パス）とその濃さ 0〜1 |
 | `MascotImage` / `MascotPlacement` / `MascotSize` | `""` / `"free"` / `220` | マスコット画像、置き方（`free` / `right` / `left`）、最大の高さ 60〜1200 px |
 | `ShowIp` | `true` | ネットワークパネルに内部 IP を出す。配信や画面共有で隠したいときは `false` |

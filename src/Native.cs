@@ -50,6 +50,32 @@ namespace DeskMeter
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+            public int StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+        }
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern bool EnumDisplayDevices(string device, uint devNum, ref DISPLAY_DEVICE dd, uint flags);
+
+        // モニター固有の ID (モニターの EDID と接続口から作られるデバイスパス)。\\.\DISPLAYn の番号が振り直されても、配置を入れ替えても変わらない
+        public static string MonitorId(string adapterName)
+        {
+            try
+            {
+                var dd = new DISPLAY_DEVICE();
+                dd.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+                if (!EnumDisplayDevices(adapterName, 0, ref dd, 1)) return null;   // 1 = EDD_GET_DEVICE_INTERFACE_NAME
+                return string.IsNullOrEmpty(dd.DeviceID) ? null : dd.DeviceID;
+            }
+            catch { return null; }
+        }
+
         [DllImport("shell32.dll")]
         static extern int SHQueryUserNotificationState(out int state);
 

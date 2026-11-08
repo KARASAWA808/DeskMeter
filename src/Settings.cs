@@ -11,7 +11,8 @@ namespace DeskMeter
     {
         // ウィンドウ位置: どのモニターの、どの端から何ピクセルか (モニター構成が変わっても追従できる)
         public string Monitor;            // 例 "\\.\DISPLAY1"。無い/見つからないときはメインモニター
-        public string MonitorRect;        // そのモニターの位置と大きさ "左,上,幅,高さ"。番号が振り直されたときの照合用
+        public string MonitorRect;        // そのモニターの位置と大きさ "左,上,幅,高さ"。名前でも ID でも見つからないときの照合用
+        public string MonitorId;          // モニター固有の ID (番号の振り直しや配置の入れ替えでも変わらない)。これを最優先で照合する
         public string AnchorH = "right";  // "left" / "right"
         public string AnchorV = "top";    // "top" / "bottom"
         public int MonX = 8;              // 基準の端からの距離 (ピクセル)
