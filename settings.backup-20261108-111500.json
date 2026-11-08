@@ -1,0 +1,95 @@
+{
+  "Monitor": "\\\\.\\DISPLAY8",
+  "MonitorRect": null,
+  "MonitorId": null,
+  "AnchorH": "right",
+  "AnchorV": "top",
+  "MonX": 8,
+  "MonY": 8,
+  "Left": null,
+  "Top": null,
+  "IntervalMs": 1000,
+  "HistorySeconds": 30,
+  "Hotkey": "",
+  "MemoryPanelAdded": true,
+  "TextShadow": "off",
+  "BackgroundImage": "",
+  "BackgroundImageOpacity": 1,
+  "MascotImage": "",
+  "MascotPlacement": "free",
+  "MascotSize": 220,
+  "Floating": [
+    
+  ],
+  "FloatPositions": [
+    {
+      "Id": "gpu",
+      "Monitor": "\\\\.\\DISPLAY3",
+      "Rect": null,
+      "MonitorId": null,
+      "X": 866,
+      "Y": 590
+    }
+  ],
+  "Skin": "Classic",
+  "Scale": 1,
+  "BackgroundOpacity": 0,
+  "Mode": "desktop",
+  "Locked": true,
+  "ClickThrough": false,
+  "Layout": [
+    [
+      "gpu",
+      "drives"
+    ],
+    [
+      "cpu"
+    ],
+    [
+      "network",
+      "memory",
+      "topmem"
+    ],
+    [
+      "clock",
+      "calendar"
+    ],
+    [
+      "datetile",
+      "weather",
+      "topcpu"
+    ]
+  ],
+  "CompactCores": true,
+  "ShowIp": true,
+  "PingHost": "1.1.1.1",
+  "WeatherEnabled": true,
+  "Latitude": 35.08,
+  "Longitude": 137.16,
+  "LocationName": "愛知県 豊田市",
+  "ShowForecast": true,
+  "ShowHolidays": true,
+  "Clock24h": true,
+  "WeekStartMonday": false,
+  "WeatherUnits": "metric",
+  "LogCsv": false,
+  "AlertCpuPct": 95,
+  "AlertMemPct": 95,
+  "AlertDiskFreePct": 5,
+  "AlertTempC": 0,
+  "AlertBatteryPct": 0,
+  "AlertSeconds": 30,
+  "EditHotkey": "",
+  "ClickThroughHotkey": "",
+  "HideWhenMaximized": true,
+  "HoverOpacity": 100,
+  "Notes": [
+    
+  ],
+  "Countdowns": [
+    
+  ],
+  "WorldClocks": [
+    
+  ]
+}

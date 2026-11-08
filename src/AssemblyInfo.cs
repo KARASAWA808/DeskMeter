@@ -6,6 +6,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyProduct("DeskMeter")]
 [assembly: AssemblyDescription("Rainmeter 風のデスクトップ常駐リソースモニター")]
 [assembly: AssemblyCopyright("MIT License")]
-[assembly: AssemblyVersion("0.3.6.0")]
-[assembly: AssemblyFileVersion("0.3.6.0")]
+[assembly: AssemblyVersion("0.3.7.0")]
+[assembly: AssemblyFileVersion("0.3.7.0")]
 [assembly: ComVisible(false)]
