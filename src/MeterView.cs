@@ -1148,14 +1148,6 @@ namespace DeskMeter
             y = KeyValue(dc, x, y, "Uptime:", Orange, Span(TimeSpan.FromMilliseconds(Native.GetTickCount64())), Orange);
             DateTime newYear = new DateTime(now.Year + 1, 1, 1);
             y = KeyValue(dc, x, y, (now.Year + 1).ToString(Inv) + "年まで:", Cyan, Span(newYear - now), Red);
-            // メニューのタイマー
-            long end = st.TimerEndTick;
-            if (end != 0)
-            {
-                long rem = end - (long)Native.GetTickCount64();
-                string v = end < 0 ? "終了" : rem > 0 ? Span(TimeSpan.FromMilliseconds(rem)) : "0s";
-                y = KeyValue(dc, x, y, "タイマー (" + st.TimerMinutes.ToString(Inv) + "分):", Orange, v, end < 0 ? Red : Orange);
-            }
             Sep(dc, x, y + 4);
             return y + 12;
         }

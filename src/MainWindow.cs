@@ -127,7 +127,7 @@ namespace DeskMeter
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miTimer, miTimerStop, miLook, miWindow, miMeasure, miSettings, miAlerts, miPing;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miLook, miWindow, miMeasure, miSettings, miAlerts, miPing;
 
         public MainWindow(string snapshotPath)
         {
@@ -784,18 +784,6 @@ namespace DeskMeter
             miClockCal.DropDownItems.Add(Item("世界時計を編集...", ShowWorldClockDialog));
             miClockCal.DropDownItems.Add(Item("メモとカウントダウンを編集...", ShowNotesDialog));
             miLook.DropDownItems.Add(miClockCal);
-            miTimer = new WF.ToolStripMenuItem("タイマー");
-            foreach (int m in new[] { 5, 10, 25, 45, 60 })
-            {
-                int min = m;
-                var mi = Item(min + " 分", delegate { StartCountdownTimer(min); });
-                mi.Tag = min;
-                miTimer.DropDownItems.Add(mi);
-            }
-            miTimer.DropDownItems.Add(new WF.ToolStripSeparator());
-            miTimerStop = Item("タイマーを止める", delegate { lock (sampler.S) { sampler.S.TimerEndTick = 0; } InvalidateAll(); });
-            miTimer.DropDownItems.Add(miTimerStop);
-            menu.Items.Add(miTimer);
             miAlerts = BuildAlertMenu();
 
             miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
@@ -885,7 +873,7 @@ namespace DeskMeter
             ver.Enabled = false;
             help.DropDownItems.Add(ver);
             help.DropDownItems.Add(Item("新しい版を確認 (GitHub)", delegate { OpenUrl("https://github.com/KARASAWA808/DeskMeter/releases"); }));
-            // 使う順に並べ直す: 見た目の切り替え → 配置 → グループ → 通知・タイマー → 隠す → 設定・ヘルプ → 終了
+            // 使う順に並べ直す: 見た目の切り替え → 配置 → グループ → 通知 → 隠す → 設定・ヘルプ → 終了
             menu.Items.Clear();
             miLook.DropDownItems.Clear();
             miLook.DropDownItems.AddRange(new WF.ToolStripItem[] { miScale, miOpacity, miHover, miShadow, miImages, miClockCal });
@@ -893,7 +881,7 @@ namespace DeskMeter
                 miAttachThis,
                 miSkin, miThemes, miPresets, miPanels, miEdit, miUndoLayout, miDetach,
                 new WF.ToolStripSeparator(),
-                miLook, miWindow, miMeasure, miAlerts, miTimer,
+                miLook, miWindow, miMeasure, miAlerts,
                 new WF.ToolStripSeparator(),
                 miVisible, miAuto, miSettings, help,
                 new WF.ToolStripSeparator(),
@@ -962,16 +950,6 @@ namespace DeskMeter
                 miHotkeyEdit.Text = !string.IsNullOrEmpty(cfg.EditHotkey) && !hotkeyOk[1] ? "ホットキー (配置の編集) - 登録できません" : "ホットキー (配置の編集)";
                 miHotkeyClick.Text = !string.IsNullOrEmpty(cfg.ClickThroughHotkey) && !hotkeyOk[2] ? "ホットキー (クリック透過) - 登録できません" : "ホットキー (クリック透過)";
                 miMonitor.Enabled = WF.Screen.AllScreens.Length > 1;
-                long tEnd; int tMin;
-                lock (sampler.S) { tEnd = sampler.S.TimerEndTick; tMin = sampler.S.TimerMinutes; }
-                long tRem = tEnd > 0 ? tEnd - (long)Native.GetTickCount64() : 0;
-                miTimer.Text = tEnd > 0 ? "タイマー (残り " + MeterView.SpanText((int)Math.Max(0, tRem / 1000)) + ")" : tEnd < 0 ? "タイマー (終了)" : "タイマー";
-                miTimerStop.Enabled = tEnd != 0;
-                foreach (WF.ToolStripItem it in miTimer.DropDownItems)
-                {
-                    var mi = it as WF.ToolStripMenuItem;
-                    if (mi != null && mi.Tag is int) mi.Checked = tEnd > 0 && (int)mi.Tag == tMin;
-                }
                 miDesktop.Checked = cfg.Mode == "desktop";
                 miTopmost.Checked = cfg.Mode == "topmost";
                 miNormal.Checked = cfg.Mode == "normal";
@@ -1563,37 +1541,6 @@ namespace DeskMeter
             ReloadSettings();   // ファイルが無いので既定値が読み込まれる
             cfg.Save();
             if (tray != null) tray.ShowBalloonTip(6000, AppName, "設定を初期値に戻しました。元の設定は settings.backup-日時.json に残っています (「設定とフォルダー」→「フォルダーとログを開く」)。", WF.ToolTipIcon.Info);
-        }
-
-        readonly DispatcherTimer countdownTimer = new DispatcherTimer();
-
-        void StartCountdownTimer(int minutes)
-        {
-            lock (sampler.S)
-            {
-                sampler.S.TimerMinutes = minutes;
-                sampler.S.TimerEndTick = (long)Native.GetTickCount64() + minutes * 60000L;
-            }
-            if (countdownTimer.Interval.TotalMilliseconds < 1)
-            {
-                countdownTimer.Interval = TimeSpan.FromSeconds(1);
-                countdownTimer.Tick += delegate
-                {
-                    long end;
-                    int min;
-                    lock (sampler.S) { end = sampler.S.TimerEndTick; min = sampler.S.TimerMinutes; }
-                    if (end <= 0) { countdownTimer.Stop(); return; }
-                    if ((long)Native.GetTickCount64() >= end)
-                    {
-                        lock (sampler.S) sampler.S.TimerEndTick = -1;   // 「終了」を次にタイマーを使うまで出す
-                        countdownTimer.Stop();
-                        if (tray != null) tray.ShowBalloonTip(10000, AppName + " のタイマー", min + " 分のタイマーが終わりました。", WF.ToolTipIcon.Info);
-                    }
-                    InvalidateAll();
-                };
-            }
-            countdownTimer.Start();
-            InvalidateAll();
         }
 
         // 設定一式の書き出し / 読み込み (zip)

@@ -135,10 +135,6 @@ namespace DeskMeter
         public bool HasBattery, AcLine, Charging;
         public int BatteryPercent = -1, BatterySecs = -1;   // -1 = 不明
         public Hist BatteryHist = new Hist(HistLen);
-
-        // タイマー (メニューから)。終了時刻 (GetTickCount64)。0 = なし、-1 = 終了を表示中
-        public long TimerEndTick;
-        public int TimerMinutes;
     }
 
     sealed class Sampler : IDisposable
