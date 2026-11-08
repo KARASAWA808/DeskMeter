@@ -341,6 +341,7 @@ namespace DeskMeter
                     object v, old;
                     if (!ext.TryGetValue(f.Name, out v)) continue;
                     if (last.TryGetValue(f.Name, out old) && ser.Serialize(old) == ser.Serialize(v)) continue;   // 手編集で変わっていない
+                    if (last.ContainsKey(f.Name) && ser.Serialize(f.GetValue(this)) != ser.Serialize(old)) continue;   // メニューでいま変えた項目は、その操作を優先する
                     try { f.SetValue(this, ser.ConvertToType(v, f.FieldType)); merged++; }
                     catch (Exception ex) { Log.Write("Settings." + f.Name + " (手編集の値が読めないので今の値のまま)", ex); }
                 }

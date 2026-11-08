@@ -282,7 +282,6 @@ namespace DeskMeter
                     long t0 = sw.ElapsedMilliseconds;
                     // 前回から間隔の 3 倍以上あいていたら (スリープ復帰、停止からの再開)、差分で出す値の基準を捨てる。復帰のイベントより先にここへ来ることがある
                     if (lastLoop > 0 && t0 - lastLoop > interval * 3L + 2000) { netPrimed = false; procStamp = 0; }
-                    lastLoop = t0;
                     long pst = Profiler.Enabled ? Stopwatch.GetTimestamp() : 0;
 
                     Safe("cpu", SampleCpu);
@@ -302,8 +301,9 @@ namespace DeskMeter
                     if (t0 >= nextDrives) { StartDrives(); nextDrives = t0 + Math.Max(30000, interval); }   // 容量は分単位でしか変わらない
                     if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
                     if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
-                    if (cfg.WeatherEnabled && t0 >= weatherNext) StartWeather();
+                    if (cfg.WeatherEnabled && Tick() >= weatherNext) StartWeather();   // weatherNext は GetTickCount64 基準 (t0 は Stopwatch なので比べない)
                     if (Profiler.Enabled) Profiler.Sample(Stopwatch.GetTimestamp() - pst);
+                    lastLoop = sw.ElapsedMilliseconds;   // 空き時間を測る (計測自体に時間がかかった分は数えない)
                     Action h = Sampled;
                     if (h != null) h();
 

@@ -925,7 +925,8 @@ namespace DeskMeter
                 settingsChangedTimer.Tick += delegate
                 {
                     settingsChangedTimer.Stop();
-                    if (!Settings.ExternallyModified() && !Settings.TakeMergedExternal()) return;   // 自分の Save によるもの
+                    bool merged = Settings.TakeMergedExternal();   // 先に読んで旗を消す (次回に持ち越さない)
+                    if (!Settings.ExternallyModified() && !merged) return;   // 自分の Save によるもの
                     ReloadSettings();
                     if (tray != null) tray.ShowBalloonTip(3000, AppName, "settings.json の変更を反映しました。", WF.ToolTipIcon.Info);
                 };

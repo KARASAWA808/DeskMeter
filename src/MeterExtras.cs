@@ -101,7 +101,7 @@ namespace DeskMeter
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
                     if (slot.Version != version) return;   // そのあとに別の画像や大きさを求められた
-                    if (err == null) slot.Image = img;
+                    if (err == null) { slot.Image = img; slot.Failed = false; }   // 前に失敗した画像が直っていれば表示する
                     else
                     {
                         slot.Image = null;
