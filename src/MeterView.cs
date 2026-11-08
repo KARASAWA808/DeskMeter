@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace DeskMeter
 {
@@ -96,6 +97,8 @@ namespace DeskMeter
         string pendingDrop;
         List<List<string>> pendingBefore;
         bool pendingWasOver;
+        string pendingSig;   // 前フレームのパネル矩形。変わらなくなったら判定する (窓の大きさと位置が落ち着き、赤線の位置が更新されている)
+        int pendingFrames;
         long dropRefusedAt;
         public bool CanUndo { get { return undoStack.Count > 0; } }
         public event Action LayoutChanged;
@@ -191,7 +194,7 @@ namespace DeskMeter
             if (!dragging && (Math.Abs(dragPos.X - dragStart.X) > 4 || Math.Abs(dragPos.Y - dragStart.Y) > 4)) dragging = true;
             if (dragging)
             {
-                ComputeDrop(dragPos);
+                ComputeDrop(dragPos, dragId);
                 InvalidateVisual();
             }
         }
@@ -209,18 +212,18 @@ namespace DeskMeter
             ReleaseMouseCapture();
             if (wasDragging)
             {
-                ComputeDrop(p);
+                ComputeDrop(p, id);
                 ApplyDrop(id);
             }
             InvalidateVisual();
             e.Handled = true;
         }
 
-        void ComputeDrop(Point p)
+        void ComputeDrop(Point p, string id)
         {
             int cols = cfg.Layout.Count;
             // 列数が上限なら新しい列は作らず、最寄りの列へ入れる (動かすパネルが列に 1 つだけなら、その列が消えるので作れる)
-            bool canAdd = cols < Settings.MaxColumns || SourceColumnCount(dragId) == 1;
+            bool canAdd = cols < Settings.MaxColumns || SourceColumnCount(id) == 1;
             // 立ち絵の分だけ列がずれているので補正する
             double px = p.X - (cfg.MascotPlacement == "left" ? sideExtra : 0);
             double w = contentW - sideExtra;
@@ -230,7 +233,7 @@ namespace DeskMeter
             dropIndex = 0;
             foreach (PanelBox b in boxes)
             {
-                if (b.Col != dropCol || b.Id == dragId) continue;
+                if (b.Col != dropCol || b.Id == id) continue;
                 if (p.Y > b.R.Y + b.R.Height / 2) dropIndex++;
             }
         }
@@ -266,6 +269,8 @@ namespace DeskMeter
             pendingDrop = id;
             pendingBefore = before;
             pendingWasOver = wasOver;
+            pendingSig = null;
+            pendingFrames = 0;
             Relayout();
             if (LayoutChanged != null) LayoutChanged();
         }
@@ -274,6 +279,17 @@ namespace DeskMeter
         void CheckPendingDrop()
         {
             if (pendingDrop == null) return;
+            // 落とした直後のフレームは窓の大きさがまだ古い (高さが決まってから窓が伸び、位置復元で赤線の位置が更新される)。
+            // パネルの矩形が前のフレームと同じになるまで待ってから判定する
+            string sig = "";
+            foreach (PanelBox b in boxes) sig += b.Id + ":" + b.R.ToString(CultureInfo.InvariantCulture) + ";";
+            if (sig != pendingSig && pendingFrames < 8)
+            {
+                pendingSig = sig;
+                pendingFrames++;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(InvalidateVisual));
+                return;
+            }
             string id = pendingDrop;
             List<List<string>> before = pendingBefore;
             pendingDrop = null;
@@ -292,12 +308,20 @@ namespace DeskMeter
             if (undoStack.Count > 50) undoStack.RemoveAt(0);
         }
 
+        // プリセット・テーマ・再読み込みなどで配置を作り直したときに呼ぶ (古い配置に戻せないようにする)
+        public void ClearUndo()
+        {
+            undoStack.Clear();
+            pendingDrop = null;
+        }
+
         public void UndoDrop()
         {
             if (undoStack.Count == 0) return;
             cfg.Layout = undoStack[undoStack.Count - 1];
             undoStack.RemoveAt(undoStack.Count - 1);
             pendingDrop = null;
+            foreach (List<string> col in cfg.Layout) col.RemoveAll(delegate(string pid) { return cfg.Floating.Contains(pid); });   // その後に切り離したパネルは本体に戻さない
             cfg.CleanLayout();
             Relayout();
             if (LayoutChanged != null) LayoutChanged();
@@ -1085,13 +1109,31 @@ namespace DeskMeter
             if (cfg.ShowHolidays)
             {
                 string holText = MonthHolidayNames(today);
-                if (holText.Length > 0) { T(dc, holText, x + ColW / 2, y, 10.5, sk.CalSun, 2, false, ColW - 4); y += 15; }
+                if (holText.Length > 0)
+                {
+                    // 連休の月は 1 行に収まらないので 2 行まで (ゴールデンウィークなど)
+                    if (holFt == null || holFtSkin != sk || holFtDip != dip || holFtText != holText)
+                    {
+                        holFt = Make(holText, 10.5, sk.CalSun, TfN);
+                        holFt.MaxTextWidth = ColW - 4;
+                        holFt.MaxLineCount = 2;
+                        holFt.Trimming = TextTrimming.CharacterEllipsis;
+                        holFt.TextAlignment = TextAlignment.Center;
+                        holFtSkin = sk; holFtDip = dip; holFtText = holText;
+                    }
+                    DrawTextWithShadow(dc, holFt, new Point(x + 2, y), sk.CalSun);
+                    y += Math.Ceiling(holFt.Height) + 2;
+                }
             }
             return y;
         }
 
         int holNamesYm;
         string holNames = "";
+        FormattedText holFt;
+        Skin holFtSkin;
+        double holFtDip;
+        string holFtText;
         string MonthHolidayNames(DateTime today)
         {
             int ym = today.Year * 100 + today.Month;

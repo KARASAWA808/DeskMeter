@@ -45,6 +45,7 @@ namespace DeskMeter
         void RelayoutAll()
         {
             SyncFloating();
+            view.ClearUndo();   // プリセット・テーマ・再読み込み・切り離しで配置が変わったので、編集中の取り消し履歴は捨てる
             view.Relayout();
             foreach (PanelWindow f in floats) f.View.Relayout();
         }

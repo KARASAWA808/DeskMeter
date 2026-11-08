@@ -165,7 +165,7 @@ namespace DeskMeter
             public List<FloatPos> FloatPositions;
         }
 
-        public static string ThemeDir { get { return Path.Combine(AppPaths.Dir, "themes"); } }
+        public static string ThemeDir { get { return Path.Combine(AppPaths.DataDir, "themes"); } }
 
         // CON や COM1 のような Windows の予約名はファイルにできない
         public static bool IsReservedName(string name)
@@ -267,6 +267,7 @@ namespace DeskMeter
                     dest = Path.Combine(imgDir, Path.GetFileNameWithoutExtension(full) + "-" + FileHash8(full) + Path.GetExtension(full));
                 }
                 if (!File.Exists(dest) || !SameFile(dest, full)) File.Copy(full, dest, true);
+                if (AppPaths.Redirected) return dest;   // 保存先が exe のフォルダーでないときは相対パスにできない
                 return Path.Combine("themes", "images", Path.GetFileName(dest));
             }
             catch (Exception ex) { Log.Write("theme image " + setting, ex); return setting; }

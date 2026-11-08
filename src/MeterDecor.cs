@@ -72,13 +72,13 @@ namespace DeskMeter
 
         Drawing decorCache;
         double decorW, decorH, decorOp = -1;
-        string decorBgImage;
+        bool decorBgLoaded;   // 背景画像が読めているか (縞の有無が変わる)
 
         // 模様は動かないので、窓の大きさが変わるまでは一度描いたものを貼るだけにする
         void DrawDecor(DrawingContext dc)
         {
             if (string.IsNullOrEmpty(sk.Decor)) return;
-            if (decorCache == null || decorW != contentW || decorH != contentH || decorOp != cfg.BackgroundOpacity || decorBgImage != cfg.BackgroundImage)
+            if (decorCache == null || decorW != contentW || decorH != contentH || decorOp != cfg.BackgroundOpacity || decorBgLoaded != (bgSlot.Image != null))
             {
                 var dv = new DrawingVisual();
                 using (DrawingContext d2 = dv.RenderOpen()) DrawDecorNow(d2);
@@ -88,7 +88,7 @@ namespace DeskMeter
                 decorW = contentW;
                 decorH = contentH;
                 decorOp = cfg.BackgroundOpacity;
-                decorBgImage = cfg.BackgroundImage;
+                decorBgLoaded = bgSlot.Image != null;
             }
             if (decorCache != null) dc.DrawDrawing(decorCache);
         }
@@ -225,7 +225,7 @@ namespace DeskMeter
             dc.PushClip(clipTop);
             dc.DrawEllipse(sun, null, new Point(cx, horizon), sunR, sunR);
             // 太陽の下側に横縞の切れ目。背景画像があるときは背景色で塗ると帯になって写真を隠すので描かない
-            for (int i = 0; i < 5 && string.IsNullOrWhiteSpace(cfg.BackgroundImage); i++)
+            for (int i = 0; i < 5 && bgSlot.Image == null; i++)
             {
                 double yy = horizon - sunR * (0.1 + i * 0.12);
                 // 背景と同じ色・同じ不透明度で塗って「切れ目」に見せる (グラデーションならその高さの色)

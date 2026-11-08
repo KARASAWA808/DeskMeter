@@ -204,6 +204,8 @@ namespace DeskMeter
                 SystemEvents.SessionSwitch += OnSessionSwitch;
                 StartShowListener();
                 StartSettingsWatcher();
+                if (AppPaths.Redirected && tray != null)
+                    tray.ShowBalloonTip(10000, AppName, (AppPaths.InTemp ? "zip の中から直接起動しているようです。フォルダーに展開してから起動してください。" : "exe のフォルダーに書き込めないので、") + "設定・ログ・テーマは " + AppPaths.DataDir + " に保存します。", WF.ToolTipIcon.Warning);
                 if (Settings.BrokenBackupPath != null && tray != null)
                     tray.ShowBalloonTip(8000, AppName, "settings.json が読めなかったので既定の設定で起動しました。元のファイルは " + Path.GetFileName(Settings.BrokenBackupPath) + " に退避してあります。", WF.ToolTipIcon.Warning);
                 else WarnSettingsProblems();
@@ -263,6 +265,7 @@ namespace DeskMeter
                 if (byName == null && device != null && string.Equals(s.DeviceName, device, StringComparison.OrdinalIgnoreCase)) byName = s;
                 if (byRect == null && rect != null && RectKey(s) == rect) byRect = s;
             }
+            if (byId == null && byName != null && byRect != null && byName != byRect) return byRect;   // ID の無い古い設定で番号が振り直された
             return byId ?? byName ?? byRect ?? WF.Screen.PrimaryScreen ?? all[0];
         }
 
@@ -745,6 +748,7 @@ namespace DeskMeter
             menu.Items.Add(Item("設定を初期値に戻す...", ResetSettings));
             var folders = new WF.ToolStripMenuItem("フォルダーとログを開く");
             folders.DropDownItems.Add(Item("DeskMeter のフォルダー (設定・スキン・テーマ)", delegate { OpenPath(AppPaths.Dir); }));
+            if (AppPaths.Redirected) folders.DropDownItems.Add(Item("設定・ログ・テーマの保存先 (" + AppPaths.DataDir + ")", delegate { OpenPath(AppPaths.DataDir); }));
             folders.DropDownItems.Add(Item("ログ (deskmeter.log)", OpenLog));
             menu.Items.Add(folders);
             var help = new WF.ToolStripMenuItem("ヘルプ");
@@ -937,7 +941,7 @@ namespace DeskMeter
                     ReloadSettings();
                     if (tray != null) tray.ShowBalloonTip(3000, AppName, "settings.json の変更を反映しました。", WF.ToolTipIcon.Info);
                 };
-                settingsWatcher = new FileSystemWatcher(AppPaths.Dir, "settings.json");
+                settingsWatcher = new FileSystemWatcher(AppPaths.DataDir, "settings.json");
                 settingsWatcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName;
                 FileSystemEventHandler onChange = delegate
                 {
@@ -1217,7 +1221,7 @@ namespace DeskMeter
         {
             try
             {
-                string path = Path.Combine(AppPaths.Dir, "deskmeter.log");
+                string path = Path.Combine(AppPaths.DataDir, "deskmeter.log");
                 if (!File.Exists(path))
                 {
                     if (tray != null) tray.ShowBalloonTip(3000, AppName, "ログはまだありません (問題が起きたときだけ作られます)。", WF.ToolTipIcon.Info);
@@ -1237,7 +1241,7 @@ namespace DeskMeter
             {
                 if (File.Exists(Settings.FilePath))
                 {
-                    string backup = Path.Combine(AppPaths.Dir, "settings.backup-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
+                    string backup = Path.Combine(AppPaths.DataDir, "settings.backup-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
                     File.Copy(Settings.FilePath, backup, true);
                     File.Delete(Settings.FilePath);
                 }

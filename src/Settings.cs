@@ -71,7 +71,7 @@ namespace DeskMeter
 
         public static string FilePath
         {
-            get { return Path.Combine(AppPaths.Dir, "settings.json"); }
+            get { return Path.Combine(AppPaths.DataDir, "settings.json"); }
         }
 
         // 最後に読み書きしたときのファイルの更新時刻。外部 (メモ帳など) で編集されたかの判定に使う
@@ -159,7 +159,7 @@ namespace DeskMeter
         {
             try
             {
-                string dest = Path.Combine(AppPaths.Dir, "settings.broken-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
+                string dest = Path.Combine(AppPaths.DataDir, "settings.broken-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
                 File.Copy(FilePath, dest, true);
                 Log.Write("Settings.Load", new InvalidOperationException("settings.json が読めないので退避しました: " + dest));
                 return dest;

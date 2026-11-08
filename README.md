@@ -59,7 +59,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 1. メニューの「Windows 起動時に開始」のチェックを外します（レジストリ `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` の `DeskMeter` が消えます）。
 2. 「終了」で閉じて、フォルダーごと削除します。
 
-書き込む場所はこのフォルダーと上のレジストリ値だけです。フォルダーには `settings.json`、`deskmeter.log`、壊れた設定の退避 `settings.broken-*.json`、「設定を初期値に戻す」の前のバックアップ `settings.backup-*.json`、保存したテーマ `themes\` ができます。
+書き込む場所はこのフォルダーと上のレジストリ値だけです。このフォルダーに書き込めないとき（Program Files に置いた、ランサムウェア保護のかかったフォルダー、zip の中から直接起動した等）は、代わりに `%APPDATA%\DeskMeter` に保存し、起動時にトレイで知らせます（メニューの「フォルダーとログを開く」に保存先が出ます）。フォルダーには `settings.json`、`deskmeter.log`、壊れた設定の退避 `settings.broken-*.json`、「設定を初期値に戻す」の前のバックアップ `settings.backup-*.json`、保存したテーマ `themes\` ができます。
 
 ### ログと不具合の報告
 
@@ -102,7 +102,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 負荷はウィンドウの面積と描画回数に比例します。半透明ウィンドウの合成が主な内訳なので、サイズ 150% やカード付きのスキン（Nord、Frost など）、0.25〜0.5 秒更新では数倍になります（0.25 秒更新・150%・Nord で 1 コアの 10〜15% 程度）。計測が 0.5 秒より速いときは、グラフの点は計測ごとに積みつつ描画だけ 0.5 秒ごとに間引きます。バッテリー駆動中は `nvidia-smi` への問い合わせを 10 秒ごとにします。
 
-負荷の内訳を調べたいときは、環境変数 `DESKMETER_PROFILE=1` を付けて起動すると、描画と計測にかかった時間が 30 秒ごとに `deskmeter.log` に書かれます。`DESKMETER_NO_SMI=1` を付けると `nvidia-smi` を使わず、NVIDIA 以外の環境と同じ表示になります（表示確認用）。
+負荷の内訳を調べたいときは、環境変数 `DESKMETER_PROFILE=1` を付けて起動すると、描画と計測にかかった時間が 30 秒ごとに `deskmeter.log` に書かれます。`DESKMETER_NO_SMI=1` を付けると `nvidia-smi` を使わず、NVIDIA 以外の環境と同じ表示になります（表示確認用）。`DESKMETER_ALLOW_TEMP=1` を付けると、`%TEMP%` の下から起動しても「zip の中から起動」とは見なしません（テスト用）。
 
 ## settings.json の項目
 

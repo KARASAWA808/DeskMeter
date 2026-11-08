@@ -334,6 +334,59 @@ namespace DeskMeter
             }
         }
         public static bool ScriptHosted { get { return AppDomain.CurrentDomain.GetData("APPBASE_OVERRIDE") is string; } }
+
+        // 設定・ログ・テーマの保存先。exe のフォルダーに書けるならそこ (従来どおり)。
+        // Program Files やランサムウェア保護のかかったフォルダー、zip の中から直接起動したときの一時フォルダーでは
+        // 黙って保存に失敗していたので、%APPDATA%\DeskMeter に切り替えて起動時に知らせる
+        static string dataDir;
+        public static bool Redirected, InTemp;
+        public static string DataDir
+        {
+            get
+            {
+                if (dataDir != null) return dataDir;
+                string dir = Dir;
+                try
+                {
+                    string temp = Path.GetTempPath().TrimEnd('\\');
+                    InTemp = dir.StartsWith(temp, StringComparison.OrdinalIgnoreCase) && Environment.GetEnvironmentVariable("DESKMETER_ALLOW_TEMP") != "1";
+                }
+                catch { }
+                if (!InTemp && Writable(dir)) { dataDir = dir; return dataDir; }
+                try
+                {
+                    string app = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DeskMeter");
+                    Directory.CreateDirectory(app);
+                    if (Writable(app)) { Redirected = true; dataDir = app; MigrateSettings(dir, app); return dataDir; }
+                }
+                catch { }
+                dataDir = dir;   // どこにも書けない: 従来どおり (保存は失敗する)
+                return dataDir;
+            }
+        }
+
+        // exe のフォルダーに (書けていた頃の) settings.json があれば、最初の 1 回だけ保存先へ引き継ぐ
+        static void MigrateSettings(string from, string to)
+        {
+            try
+            {
+                string src = Path.Combine(from, "settings.json"), dst = Path.Combine(to, "settings.json");
+                if (File.Exists(src) && !File.Exists(dst)) File.Copy(src, dst);
+            }
+            catch { }
+        }
+
+        static bool Writable(string dir)
+        {
+            try
+            {
+                string probe = Path.Combine(dir, ".write-test-" + System.Diagnostics.Process.GetCurrentProcess().Id);
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return true;
+            }
+            catch { return false; }
+        }
     }
 
     // 環境変数 DESKMETER_PROFILE=1 で起動すると、描画と計測にかかった時間を 30 秒ごとにログへ書く (負荷の調査用)
@@ -437,7 +490,7 @@ namespace DeskMeter
                     if (now - windowStart > 3600000L) { windowStart = now; count = 0; }
                     if (count++ > MaxPerHour) return;
                     if (count > MaxPerHour) { where = "log"; ex = new InvalidOperationException("1 時間に " + MaxPerHour + " 行を超えたので、しばらく記録を止めます"); }
-                    string path = Path.Combine(AppPaths.Dir, "deskmeter.log");
+                    string path = Path.Combine(AppPaths.DataDir, "deskmeter.log");
                     try
                     {
                         var fi = new FileInfo(path);

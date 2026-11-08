@@ -26,6 +26,7 @@ foreach ($skin in $Skins) {
     [IO.File]::WriteAllText((Join-Path $stage 'settings.json'), ('{ "Skin": "' + $skin + '", "Mode": "normal", "ShowIp": false }'), $utf8)
     Remove-Item (Join-Path $stage 'deskmeter.log') -ErrorAction SilentlyContinue
     $out = Join-Path $outDir ($skin + '.png')
+    $env:DESKMETER_ALLOW_TEMP = "1"   # 作業用フォルダーは %TEMP% の下なので「zip の中から起動」扱いにしない
     Start-Process -FilePath (Join-Path $stage 'DeskMeter.exe') -ArgumentList @('--snapshot', $out, '--delay', '8') -WorkingDirectory $stage -Wait
     if (-not (Test-Path $out)) { throw "撮れませんでした: $skin" }
     Write-Host ("{0,-24} {1,8:n0} bytes" -f $skin, (Get-Item $out).Length)

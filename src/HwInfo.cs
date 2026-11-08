@@ -94,10 +94,15 @@ namespace DeskMeter
             long nowUnix = (long)(DateTime.UtcNow - Epoch).TotalSeconds;
             if (poll != lastPoll)
             {
-                if (lastPoll > 0 && poll > lastPoll) pollDelta = poll - lastPoll;
+                // 間隔は、前回見た値からの差。スリープや HWiNFO の再起動で空いた時間は間隔ではないので取り込まない
+                if (lastPoll > 0 && poll > lastPoll)
+                {
+                    long d = poll - lastPoll;
+                    if (d <= Math.Max(300, pollDelta * 3)) pollDelta = d;
+                }
                 lastPoll = poll;
             }
-            long limit = pollDelta > 0 ? Math.Min(600, Math.Max(30, pollDelta * 3 + 5)) : 120;
+            long limit = pollDelta > 0 ? Math.Min(600, Math.Max(30, pollDelta * 3 + 5)) : 45;
             if (poll > 0 && nowUnix - poll > limit) { stale = true; return false; }
             long sensOff = (uint)Marshal.ReadInt32(p, 20), sensLen = (uint)Marshal.ReadInt32(p, 24), sensN = (uint)Marshal.ReadInt32(p, 28);
             long readOff = (uint)Marshal.ReadInt32(p, 32), readLen = (uint)Marshal.ReadInt32(p, 36), readN = (uint)Marshal.ReadInt32(p, 40);
