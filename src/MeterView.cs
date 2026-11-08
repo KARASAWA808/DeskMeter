@@ -1196,7 +1196,7 @@ namespace DeskMeter
             for (int i = 0; i < 7; i++)
             {
                 dc.DrawRectangle(i == dow ? TodayOrange : CalHead, null, new Rect(x + i * cw + 1, y, cw - 2, 20));
-                T(dc, names[i], x + i * cw + cw / 2, y + 1, 12.5, White, 2);
+                T(dc, names[i], x + i * cw + cw / 2, y + 2.5, 12.5, White, 2);   // 20 px の帯の中で上下中央に (文字の行の高さは約 17 px)
             }
             y += 24;
             DateTime first = new DateTime(today.Year, today.Month, 1);
