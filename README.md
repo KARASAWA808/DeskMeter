@@ -13,12 +13,14 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 | CPU Meter | 全体と論理プロセッサごとの使用率、実クロック、プロセス/スレッド/ハンドル数、物理コア数、L3。HWiNFO64 連携で温度・電力・ファン |
 | Memory Meter | 使用中（圧縮）、使用可能、コミット、キャッシュ、ページ/非ページプール、ハードウェア予約、ページファイル、メモリ構成（使用中/変更済み/スタンバイ/空き）、種類・速度・スロット数 |
 | GPU Meter | 使用率、温度、VRAM、クロック、消費電力、ファン（NVIDIA、`nvidia-smi` 経由）。NVIDIA 以外の GPU は使用率と VRAM のみ（Windows の GPU カウンター） |
-| Network Meter | 上り/下り速度、ピーク、Ping、起動後と累計の通信量、内部 IP |
-| Drives Meter | 容量と使用率、読み書き速度 |
+| Network Meter | 上り/下り速度、ピーク、Ping（直近 60 回のグラフとロス数）、起動後と累計の通信量、内部 IP |
+| Drives Meter | 容量と使用率、全体とドライブごとの読み書き速度 |
 | Top CPU / Top Memory Meter | プロセス別の上位 10 件 |
 | Ring Gauges | CPU / RAM / GPU / VRAM の円形ゲージ |
-| 時計・カレンダー・日付タイル | 稼働時間、新年までのカウントダウン、日本の祝日 |
-| Weather Meter | 現在の天気と 3 日予報（Open-Meteo、API キー不要）、月齢 |
+| 時計・カレンダー・日付タイル | 稼働時間、新年までのカウントダウン、日本の祝日（その月の祝日名も）、世界時計、タイマー。24/12 時間制、週の開始曜日を選べます |
+| Weather Meter | 現在の天気と 3 日予報（Open-Meteo、API キー不要）、月齢。単位は °C/km/h、°C/m/s、°F/mph |
+| Battery Meter | 残量、残り時間、AC/充電の状態、残量のグラフ（ノート PC。バッテリーの無い PC では選べません） |
+| Notes | メモとカウントダウン（`settings.json` の `Notes` / `Countdowns` に書きます） |
 
 ## 見た目のカスタマイズ
 
@@ -48,7 +50,12 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 2. 右クリックでメニューが開きます。左ドラッグで移動します。タスクトレイのアイコンからも同じメニューを開けます。
 3. 設定は exe と同じフォルダーの `settings.json` に保存されます（メニューの「設定ファイルを開く」で編集。保存すると自動で反映されます）。
 
-主なメニュー: スキン / 表示モード（デスクトップに固定・常に最前面・通常）/ モニターへ移動 / 位置を固定 / クリックを透過 / サイズ / 背景の不透明度 / 文字の影・縁取り / 更新間隔 / グラフの時間幅 / 表示する項目 / 配置の編集 / 配置を元に戻す / パネルを切り離す / 配置プリセット / テーマ / 画像 / ホットキー / ウィジェットを隠す / 天気の場所を設定 / 天気を今すぐ更新 / Peak と起動後の通信量をリセット / Windows 起動時に開始 / 設定ファイルを開く・再読み込み / 設定を初期値に戻す / フォルダーとログを開く / ヘルプ
+主なメニュー: スキン / 表示モード（デスクトップに固定・常に最前面・通常）/ モニターへ移動 / 位置を固定 / クリックを透過 / 同じモニターで最大化中のウィンドウがあれば隠す / 普段は薄く表示 / サイズ / 背景の不透明度 / 文字の影・縁取り / 更新間隔 / グラフの時間幅 / 表示する項目 / 時計・カレンダー / タイマー / 通知 / 配置の編集 / 配置を元に戻す / パネルを切り離す / 配置プリセット / テーマ / 画像 / ホットキー（表示/非表示・配置の編集・クリック透過）/ ウィジェットを隠す / 天気の場所を設定 / 天気の単位 / 天気を今すぐ更新 / Peak と起動後の通信量をリセット / Windows 起動時に開始 / 設定ファイルを開く・再読み込み / 設定を初期値に戻す / 設定一式を書き出す・読み込む / フォルダーとログを開く / ヘルプ
+
+- **通知**: CPU やメモリの使用率が高い状態が続いたとき、ドライブの空きが少ないとき、温度が高いとき（CPU は HWiNFO 連携時、GPU は NVIDIA）、バッテリー残量が少ないときに、タスクトレイのバルーンで知らせます。しきい値はメニューの「通知」で選びます（既定はすべて無効）。同じ通知は解消するまで、または 30 分たつまで繰り返しません。
+- **設定一式の書き出し・読み込み**: `settings.json`、テーマ、自作スキン、背景・マスコット画像を 1 つの zip にまとめます。別の PC で読み込むと同じ見た目になります（モニターの指定だけは引き継ぎません）。コマンドラインの `--export-settings` / `--import-settings` でも行えます。
+- **普段は薄く表示**: 30〜70% の不透明度で薄く置いておき、マウスを載せたときだけはっきり表示します。
+- **最大化中は隠す**: 「常に最前面」や「通常」で使うときに、同じモニターでウィンドウを最大化している間だけウィジェットを隠します（計測も止まります）。
 
 ### 更新するとき
 
@@ -118,6 +125,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `Locked` / `ClickThrough` | `false` | 位置の固定 / クリックの透過 |
 | `IntervalMs` | `1000` | 更新間隔（ミリ秒）。250〜10000 |
 | `HistorySeconds` | `120` | グラフの時間幅（秒）。30〜1800 |
+| `EditHotkey` / `ClickThroughHotkey` | `""` | 配置の編集 / クリック透過を切り替えるホットキー（書き方は `Hotkey` と同じ） |
+| `HideWhenMaximized` | `false` | 同じモニターで最大化中のウィンドウが前面の間は隠す |
+| `HoverOpacity` | `100` | 普段の不透明度（%）。20〜99 にするとマウスを載せたときだけ 100% になる |
+| `AlertCpuPct` / `AlertMemPct` / `AlertDiskFreePct` / `AlertTempC` / `AlertBatteryPct` / `AlertSeconds` | `0` / `0` / `0` / `0` / `0` / `60` | 通知のしきい値（0 で無効）と、CPU・メモリの「続いたら」の秒数 |
+| `Clock24h` / `WeekStartMonday` | `true` / `false` | 24 時間制（`false` で 12 時間制 + AM/PM）/ カレンダーを月曜始まりにする |
+| `WorldClocks` | `[]` | 時計パネルに足す世界時計。`"Windows のタイムゾーン ID|表示名"` の配列（ID は `tzutil /l` で一覧。例 `"Eastern Standard Time|New York"`） |
+| `Notes` / `Countdowns` | `[]` / `[]` | Notes パネルのメモ（文字列の配列）とカウントダウン（`{"Name": "旅行", "Date": "2026-12-24"}` の配列） |
+| `WeatherUnits` | `"metric"` | 天気の単位: `metric`（°C, km/h）/ `metric-ms`（°C, m/s）/ `imperial`（°F, mph） |
+| `LogCsv` | `false` | 1 分ごとに CPU・メモリ・GPU・通信・ディスク・Ping・温度・バッテリーを `deskmeter-日付.csv` に追記する |
 | `Hotkey` | `""` | 表示/非表示のホットキー。`"Ctrl+Alt+D"` のように `Ctrl` / `Alt` / `Shift` / `Win` とキー名（`A`〜`Z`、`0`〜`9`、`F1`〜`F12`、`Space` など）を `+` でつなぐ。空で無効 |
 | `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `clock` `calendar` `datetile` `weather`。最大 6 列 |
 | `CompactCores` | `false` | コアごとの使用率を 2 列に詰める |
@@ -140,6 +156,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `--snapshot out.png [--delay 秒] [--edit]` | 描画内容を PNG に保存して終了します（既定 8 秒後。`--edit` で配置編集中の見た目）。README のプレビューはこれで撮っています（`tools\make-previews.ps1` でスキンのプレビューを撮り直せます） |
 | `--reload` | 起動中の DeskMeter に設定ファイルの再読み込みを頼んで終了します |
 | `--toggle-edit` | 起動中の DeskMeter の配置編集モードを切り替えて終了します |
+| `--export-settings out.zip` | 設定一式（settings.json、テーマ、自作スキン、画像）を zip に書き出して終了します |
+| `--import-settings in.zip` | zip の設定一式を取り込んで終了します（今の settings.json は `settings.backup-日時.json` に退避。起動中の DeskMeter は自動で読み直します） |
 
 `--reload` と `--toggle-edit` は、起動中の DeskMeter が無いときは何もせず `deskmeter.log` に記録して終了します。
 

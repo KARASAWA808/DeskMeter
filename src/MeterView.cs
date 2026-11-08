@@ -343,6 +343,8 @@ namespace DeskMeter
                 case "weather": return DrawWeather(dc, x, y);
                 case "rings": return DrawRings(dc, x, y);
                 case "memory": return DrawMemory(dc, x, y);
+                case "battery": return DrawBattery(dc, x, y);
+                case "notes": return DrawNotes(dc, x, y);
                 default: return y;
             }
         }
@@ -877,7 +879,18 @@ namespace DeskMeter
                 }
                 else y = KeyValue(dc, x, y, "Int IP:", Cyan, ip, Cyan);
             }
-            y = KeyValue(dc, x, y, "Ping:", Yellow, st.PingMs >= 0 ? st.PingMs.ToString(Inv) + " ms" : "--", Yellow);
+            string pingText = st.PingMs >= 0 ? st.PingMs.ToString(Inv) + " ms" : "--";
+            if (st.PingLost > 0) pingText += "  (ロス " + st.PingLost.ToString(Inv) + "/" + st.PingSent.ToString(Inv) + ")";
+            y = KeyValue(dc, x, y, "Ping:", Yellow, pingText, Yellow);
+            if (st.PingHist.Count >= 2)
+            {
+                // 直近 60 回の応答時間 (タイムアウトは天井)
+                var pr = new Rect(x, y + 1, ColW, 26);
+                double pmax = Math.Max(50, st.PingHist.Max() * 1.15);
+                Graph(dc, pr, new[] { st.PingHist }, new[] { PenYellow }, pmax);
+                ScaleLabel(dc, pr, N(pmax, "0", " ms"));
+                y += 31;
+            }
             y = UpDown(dc, x, y, Bits(st.UpBps), Bytes(st.UpBps) + "/s", Bits(st.DownBps), Bytes(st.DownBps) + "/s") + 4;
             var netRect = new Rect(x, y, ColW, 44);
             ScaleLabel(dc, netRect, Bits(Graph(dc, netRect, new[] { st.UpHist, st.DownHist }, new[] { PenGreen, PenYellow }, 0)));
@@ -905,6 +918,63 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- drives
 
+        // メモとカウントダウン (settings.json の Notes / Countdowns)
+        double DrawNotes(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TilePurple, "Notes", null);
+            T(dc, "メモとカウントダウン", x + 46, y + 19, 12.5, Gray);
+            y += 44;
+            bool any = false;
+            foreach (string n in cfg.Notes)
+            {
+                if (string.IsNullOrWhiteSpace(n)) continue;
+                T(dc, n, x, y, FS, White, 0, false, ColW);
+                y += RowH;
+                any = true;
+            }
+            if (any && cfg.Countdowns.Count > 0) { Sep(dc, x, y + 2); y += 8; }
+            DateTime today = DateTime.Today;
+            foreach (Settings.Countdown c in cfg.Countdowns)
+            {
+                DateTime d;
+                if (!DateTime.TryParseExact((c.Date ?? "").Trim(), new[] { "yyyy-MM-dd", "yyyy-M-d", "yyyy/M/d", "yyyy/MM/dd" }, Inv, DateTimeStyles.None, out d))
+                {
+                    y = KeyValue(dc, x, y, c.Name ?? "?", Cyan, "日付は yyyy-MM-dd", Red);
+                    any = true;
+                    continue;
+                }
+                int days = (d.Date - today).Days;
+                string v = days > 0 ? "あと " + days.ToString(Inv) + " 日" : days == 0 ? "今日" : (-days).ToString(Inv) + " 日前";
+                y = KeyValue(dc, x, y, string.IsNullOrWhiteSpace(c.Name) ? d.ToString("M/d", Inv) : c.Name, Cyan, v, days >= 0 && days <= 3 ? Red : days < 0 ? Gray : Yellow);
+                any = true;
+            }
+            if (!any)
+            {
+                T(dc, "settings.json の Notes と Countdowns に", x, y, 12, Gray);
+                T(dc, "書くとここに出ます", x, y + RowH, 12, Gray);
+                y += RowH * 2;
+            }
+            return y + 4;
+        }
+
+        double DrawBattery(DrawingContext dc, double x, double y)
+        {
+            Header(dc, x, y, "", TileGreen, "Battery Meter", st.BatteryPercent >= 0 ? st.BatteryPercent.ToString(Inv) + "%" : "--");
+            string state = !st.HasBattery ? "バッテリーがありません" : st.AcLine ? (st.Charging ? "AC 接続 (充電中)" : "AC 接続") : "バッテリー駆動";
+            T(dc, state, x + 46, y + 19, 12.5, Gray);
+            y += 44;
+            double frac = st.BatteryPercent >= 0 ? st.BatteryPercent / 100.0 : double.NaN;
+            Brush fill = st.BatteryPercent >= 0 && st.BatteryPercent <= 20 && !st.AcLine ? Red : st.Charging ? Lime : Green;
+            Bar(dc, x, y + 4, ColW, 10, frac, fill);
+            y += RowH + 4;
+            string left = st.BatterySecs >= 0 ? Span(TimeSpan.FromSeconds(st.BatterySecs)) : !st.HasBattery ? "--" : st.AcLine ? "--" : "計算中";
+            y = KeyValue(dc, x, y, "残り時間:", Cyan, left, Cyan);
+            var r = new Rect(x, y + 2, ColW, 36);
+            Graph(dc, r, new[] { st.BatteryHist }, new[] { PenGreen }, 100);
+            ScaleLabel(dc, r, "100%");
+            return y + 42;
+        }
+
         double DrawDrives(DrawingContext dc, double x, double y)
         {
             Header(dc, x, y, "", TileSlate, "Drives Meter", Pct(st.DiskActive));
@@ -914,7 +984,9 @@ namespace DeskMeter
             foreach (DriveRow d in st.Drives)
             {
                 double usedFrac = d.Total > 0 ? (double)(d.Total - d.Free) / d.Total : 0;
-                driveBoxes.Add(new KeyValuePair<Rect, string>(new Rect(x, y, ColW, RowH + 16 + RowH + 2), d.Name));
+                double[] io;
+                bool hasIo = st.DriveIo.TryGetValue(d.Name, out io);
+                driveBoxes.Add(new KeyValuePair<Rect, string>(new Rect(x, y, ColW, RowH + 16 + RowH + 2 + (hasIo ? RowH : 0)), d.Name));
                 T(dc, d.Name + " " + d.Label, x, y, FS, Cyan, 0, false, ColW - 44);
                 T(dc, Pct(usedFrac * 100), x + ColW, y, FS, White, 1);
                 y += RowH;
@@ -923,6 +995,15 @@ namespace DeskMeter
                 y += 16;
                 T(dc, "Total: " + Bytes(d.Total), x, y, 12, Cyan);
                 Bar(dc, x + 112, y + 5, ColW - 112, 8, usedFrac, usedFrac > 0.9 ? Red : Cyan);
+                if (hasIo)
+                {
+                    // このドライブの読み/書き速度
+                    y += RowH;
+                    T(dc, "▲", x, y + 1, 10, Green);
+                    T(dc, Bytes(io[0]) + "/s", x + 13, y, 11.5, Lime);
+                    T(dc, "▼", x + 116, y + 1, 10, Yellow);
+                    T(dc, Bytes(io[1]) + "/s", x + ColW, y, 11.5, Yellow, 1);
+                }
                 y += RowH + 2;
             }
             T(dc, "▲", x, y + 1, 11, Green);
@@ -1041,14 +1122,18 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- clock / calendar
 
+        string TempUnit { get { return cfg.WeatherUnits == "imperial" ? "°F" : "°C"; } }
+        string WindUnit { get { return cfg.WeatherUnits == "imperial" ? "mph" : cfg.WeatherUnits == "metric-ms" ? "m/s" : "km/h"; } }
+
         double DrawClock(DrawingContext dc, double x, double y)
         {
             DateTime now = DateTime.Now;
-            FormattedText hm = Make(now.ToString("HH:mm", Inv), 40, Cyan, TfB);
+            FormattedText hm = Make(now.ToString(cfg.Clock24h ? "HH:mm" : "h:mm", Inv), 40, Cyan, TfB);
             FormattedText ss = Make(now.ToString("ss", Inv), 23, Cyan, TfB);
             double sx = x + (ColW - (hm.Width + 5 + ss.Width)) / 2;
             dc.DrawText(hm, new Point(sx, y));
             dc.DrawText(ss, new Point(sx + hm.Width + 5, y + hm.Baseline - ss.Baseline));
+            if (!cfg.Clock24h) T(dc, now.ToString("tt", Inv), sx + hm.Width + 5, y + 4, 11, Cyan);   // 12 時間制: 秒の上に AM / PM
             y += 52;
             T(dc, now.ToString("yyyy年M月d日 (ddd)", Ja), x + ColW / 2, y, 13.5, Lime, 2);
             y += 20;
@@ -1057,13 +1142,48 @@ namespace DeskMeter
             int week = Inv.Calendar.GetWeekOfYear(thu, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
             T(dc, string.Format(Inv, "Day: {0}    Week: {1}    Q{2}", now.DayOfYear, week, (now.Month - 1) / 3 + 1), x + ColW / 2, y, 12.5, Yellow, 2);
             y += 22;
+            y = DrawWorldClocks(dc, x, y, now);
             Sep(dc, x, y);
             y += 6;
             y = KeyValue(dc, x, y, "Uptime:", Orange, Span(TimeSpan.FromMilliseconds(Native.GetTickCount64())), Orange);
             DateTime newYear = new DateTime(now.Year + 1, 1, 1);
             y = KeyValue(dc, x, y, (now.Year + 1).ToString(Inv) + "年まで:", Cyan, Span(newYear - now), Red);
+            // メニューのタイマー
+            long end = st.TimerEndTick;
+            if (end != 0)
+            {
+                long rem = end - (long)Native.GetTickCount64();
+                string v = end < 0 ? "終了" : rem > 0 ? Span(TimeSpan.FromMilliseconds(rem)) : "0s";
+                y = KeyValue(dc, x, y, "タイマー (" + st.TimerMinutes.ToString(Inv) + "分):", Orange, v, end < 0 ? Red : Orange);
+            }
             Sep(dc, x, y + 4);
             return y + 12;
+        }
+
+        // 世界時計: "タイムゾーン ID|表示名" ごとに 1 行。ID は一度調べたら覚えておく
+        readonly Dictionary<string, TimeZoneInfo> tzCache = new Dictionary<string, TimeZoneInfo>();
+        double DrawWorldClocks(DrawingContext dc, double x, double y, DateTime now)
+        {
+            if (cfg.WorldClocks.Count == 0) return y;
+            foreach (string wc in cfg.WorldClocks)
+            {
+                int bar = wc.IndexOf('|');
+                string id = (bar >= 0 ? wc.Substring(0, bar) : wc).Trim();
+                string label = (bar >= 0 ? wc.Substring(bar + 1) : wc).Trim();
+                TimeZoneInfo tz;
+                if (!tzCache.TryGetValue(id, out tz))
+                {
+                    try { tz = TimeZoneInfo.FindSystemTimeZoneById(id); }
+                    catch { tz = null; }
+                    tzCache[id] = tz;
+                }
+                if (tz == null) { y = KeyValue(dc, x, y, label + ":", Cyan, "ID が不明 (tzutil /l)", Red); continue; }
+                DateTime t = TimeZoneInfo.ConvertTime(now, tz);
+                double diff = (tz.GetUtcOffset(now) - TimeZoneInfo.Local.GetUtcOffset(now)).TotalHours;
+                string v = t.ToString(cfg.Clock24h ? "HH:mm" : "h:mm tt", Inv) + " (" + (diff >= 0 ? "+" : "") + diff.ToString("0.#", Inv) + "h" + (t.Date > now.Date ? " 翌日" : t.Date < now.Date ? " 前日" : "") + ")";
+                y = KeyValue(dc, x, y, label + ":", Cyan, v, Cyan);
+            }
+            return y + 4;
         }
 
         double DrawCalendar(DrawingContext dc, double x, double y)
@@ -1075,8 +1195,9 @@ namespace DeskMeter
             if (todayHol != null) T(dc, todayHol, x + ColW, y + 4, 11, sk.CalSun, 1, true, ColW / 3);
             y += 25;
             double cw = ColW / 7, ch = 23;
-            string[] names = { "日", "月", "火", "水", "木", "金", "土" };
-            int dow = (int)today.DayOfWeek;
+            string[] names = cfg.WeekStartMonday ? new[] { "月", "火", "水", "木", "金", "土", "日" } : new[] { "日", "月", "火", "水", "木", "金", "土" };
+            int shift = cfg.WeekStartMonday ? 6 : 0;   // DayOfWeek (日 = 0) から列番号へ
+            int dow = ((int)today.DayOfWeek + shift) % 7;
             for (int i = 0; i < 7; i++)
             {
                 dc.DrawRectangle(i == dow ? TodayOrange : CalHead, null, new Rect(x + i * cw + 1, y, cw - 2, 20));
@@ -1084,7 +1205,7 @@ namespace DeskMeter
             }
             y += 24;
             DateTime first = new DateTime(today.Year, today.Month, 1);
-            DateTime start = first.AddDays(-(int)first.DayOfWeek);
+            DateTime start = first.AddDays(-(((int)first.DayOfWeek + shift) % 7));
             for (int r = 0; r < 6; r++)
             {
                 for (int c = 0; c < 7; c++)
@@ -1099,7 +1220,7 @@ namespace DeskMeter
                     else
                     {
                         bool hol = cfg.ShowHolidays && Holidays.IsHoliday(d);
-                        Brush b = d.Month != today.Month ? Dim : c == 0 || hol ? sk.CalSun : c == 6 ? sk.CalSat : Cyan;
+                        Brush b = d.Month != today.Month ? Dim : d.DayOfWeek == DayOfWeek.Sunday || hol ? sk.CalSun : d.DayOfWeek == DayOfWeek.Saturday ? sk.CalSat : Cyan;
                         T(dc, d.Day.ToString(Inv), cx, cy + 1, 13.5, b, 2);
                     }
                 }
@@ -1180,7 +1301,7 @@ namespace DeskMeter
 
             double moonPhase = MoonAge(DateTime.UtcNow) / Synodic;
             WeatherIcon(dc, x + 2, y, 76, w.Code, w.IsDay, moonPhase);
-            T(dc, N(w.Temp, "0", "°C"), x + ColW, y - 8, 36, Lime, 1, true);
+            T(dc, N(w.Temp, "0", TempUnit), x + ColW, y - 8, 36, Lime, 1, true);
             T(dc, "Hi: " + N(w.Hi, "0", "°") + "   Lo: " + N(w.Lo, "0", "°"), x + ColW, y + 38, 12.5, Cyan, 1);
             T(dc, "体感: " + N(w.Feels, "0", "°"), x + ColW, y + 55, 12.5, Cyan, 1);
             y += 78;
@@ -1191,7 +1312,7 @@ namespace DeskMeter
 
             y = KeyValue(dc, x, y, "湿度:", Yellow, N(w.Humidity, "0", "%"), Yellow);
             y = KeyValue(dc, x, y, "気圧:", Red, N(w.Pressure, "0.0", " hPa"), Red);
-            y = KeyValue(dc, x, y, "風:", Magenta, N(w.Wind, "0", " km/h") + "  " + Compass(w.WindDir), Magenta);
+            y = KeyValue(dc, x, y, "風:", Magenta, N(w.Wind, "0", " " + WindUnit) + "  " + Compass(w.WindDir), Magenta);
             y = KeyValue(dc, x, y, "UV指数:", Violet, N(w.Uv, "0.0", "") + "  " + UvLabel(w.Uv), Violet);
             y = KeyValue(dc, x, y, "降水確率:", Cyan, N(w.PrecipProb, "0", "%"), Cyan);
             if (w.Sunrise > DateTime.MinValue && w.Sunset > DateTime.MinValue)

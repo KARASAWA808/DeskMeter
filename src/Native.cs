@@ -49,6 +49,8 @@ namespace DeskMeter
         public static extern bool UnregisterPowerSettingNotification(IntPtr handle);
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        public static extern bool IsZoomed(IntPtr h);   // 最大化されているか
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         public struct DISPLAY_DEVICE
@@ -202,13 +204,19 @@ namespace DeskMeter
         static extern uint GetActiveProcessorCount(ushort group);
 
         [StructLayout(LayoutKind.Sequential)]
-        struct SYSTEM_POWER_STATUS
+        public struct SYSTEM_POWER_STATUS
         {
             public byte ACLineStatus, BatteryFlag, BatteryLifePercent, SystemStatusFlag;
             public int BatteryLifeTime, BatteryFullLifeTime;
         }
         [DllImport("kernel32.dll")]
         static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
+
+        public static bool PowerStatus(out SYSTEM_POWER_STATUS st)
+        {
+            try { return GetSystemPowerStatus(out st); }
+            catch { st = new SYSTEM_POWER_STATUS(); return false; }
+        }
 
         // バッテリー駆動中か (AC 接続・不明なら false)
         public static bool OnBattery()

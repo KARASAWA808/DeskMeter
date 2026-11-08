@@ -109,9 +109,13 @@ namespace DeskMeter
         public double UpBps, DownBps, PeakBps;
         public long SessUp, SessDown, TotUp, TotDown;
         public long PingMs = -1;
+        public Hist PingHist = new Hist(60);   // 直近 60 回 (タイムアウトは 1500 で積む)
+        public int PingSent, PingLost;
         public Hist UpHist = new Hist(HistLen), DownHist = new Hist(HistLen);
 
         public List<DriveRow> Drives = new List<DriveRow>();
+        // ドライブ文字 ("C:") ごとの読み/書き bytes/s。取れないドライブは入らない
+        public Dictionary<string, double[]> DriveIo = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
         public double ReadBps, WriteBps;
         public float DiskActive;
         public Hist ReadHist = new Hist(HistLen), WriteHist = new Hist(HistLen);
@@ -126,6 +130,15 @@ namespace DeskMeter
         // HWiNFO64 の共有メモリから (NaN = 不明)。HwInfoOk = false なら HWiNFO 未起動か Shared Memory Support がオフ
         public bool HwInfoOk;
         public float CpuTemp = float.NaN, CpuPowerW = float.NaN, CpuFanRpm = float.NaN;
+
+        // バッテリー (GetSystemPowerStatus)。HasBattery = false ならデスクトップ機
+        public bool HasBattery, AcLine, Charging;
+        public int BatteryPercent = -1, BatterySecs = -1;   // -1 = 不明
+        public Hist BatteryHist = new Hist(HistLen);
+
+        // タイマー (メニューから)。終了時刻 (GetTickCount64)。0 = なし、-1 = 終了を表示中
+        public long TimerEndTick;
+        public int TimerMinutes;
     }
 
     sealed class Sampler : IDisposable
@@ -141,6 +154,10 @@ namespace DeskMeter
 
         readonly PdhQuery pdh = new PdhQuery();
         IntPtr hCores, hPerf, hFreq, hRead, hWrite, hIdle, hPage, hStandby1, hStandby2, hStandby3, hModified, hFreeZero;
+        IntPtr hDriveRead, hDriveWrite;   // ドライブごとの読み書き (LogicalDisk(*))
+        readonly List<string> ioNames = new List<string>(16);
+        readonly List<double> ioVals = new List<double>(16);
+        long nextCsv;
         readonly List<string> coreNames = new List<string>(64);
         readonly List<double> coreValues = new List<double>(64);
         readonly List<KeyValuePair<int, float>> coreSorted = new List<KeyValuePair<int, float>>(64);
@@ -286,6 +303,7 @@ namespace DeskMeter
 
                     Safe("cpu", SampleCpu);
                     Safe("mem", SampleMemory);
+                    Safe("battery", SampleBattery);
                     Safe("disk", SampleDiskIo);
                     // ネットワークは間隔が短くても 1 秒に 1 回まで (dt は前回のネット計測からの経過秒)
                     if (t0 >= nextNet)
@@ -302,6 +320,7 @@ namespace DeskMeter
                     if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
                     if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
                     if (cfg.WeatherEnabled && Tick() >= weatherNext) StartWeather();   // weatherNext は GetTickCount64 基準 (t0 は Stopwatch なので比べない)
+                    if (cfg.LogCsv && t0 >= nextCsv) { Safe("csv", WriteCsv); nextCsv = t0 + 60000; }
                     if (Profiler.Enabled) Profiler.Sample(Stopwatch.GetTimestamp() - pst);
                     lastLoop = sw.ElapsedMilliseconds;   // 空き時間を測る (計測自体に時間がかかった分は数えない)
                     Action h = Sampled;
@@ -345,6 +364,7 @@ namespace DeskMeter
                 S.ReadHist = new Hist(cap); S.WriteHist = new Hist(cap);
                 S.ProcHist = new Hist(procCap);
                 S.RamHist = new Hist(cap);
+                S.BatteryHist = new Hist(cap);
                 for (int i = 0; i < S.CoreHist.Length; i++) S.CoreHist[i] = new Hist(cap);
             }
         }
@@ -395,6 +415,8 @@ namespace DeskMeter
                 hRead = pdh.Add(@"\PhysicalDisk(_Total)\Disk Read Bytes/sec");
                 hWrite = pdh.Add(@"\PhysicalDisk(_Total)\Disk Write Bytes/sec");
                 hIdle = pdh.Add(@"\PhysicalDisk(_Total)\% Idle Time");
+                hDriveRead = pdh.Add(@"\LogicalDisk(*)\Disk Read Bytes/sec");
+                hDriveWrite = pdh.Add(@"\LogicalDisk(*)\Disk Write Bytes/sec");
                 hPage = pdh.Add(@"\Paging File(_Total)\% Usage");
                 hStandby1 = pdh.Add(@"\Memory\Standby Cache Normal Priority Bytes");
                 hStandby2 = pdh.Add(@"\Memory\Standby Cache Reserve Bytes");
@@ -612,6 +634,64 @@ namespace DeskMeter
                 S.ReadBps = r; S.WriteBps = w; S.DiskActive = active;
                 S.ReadHist.Add(r); S.WriteHist.Add(w);
             }
+            // ドライブ文字ごと (インスタンス名 "C:" のものだけ。HarddiskVolume や _Total は除く)
+            if (hDriveRead != IntPtr.Zero && hDriveWrite != IntPtr.Zero)
+            {
+                var io = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+                int n = pdh.Array(hDriveRead, ioNames, ioVals);
+                for (int i = 0; i < n; i++)
+                    if (ioNames[i].Length == 2 && ioNames[i][1] == ':') io[ioNames[i]] = new double[] { Val(ioVals[i]), 0 };
+                n = pdh.Array(hDriveWrite, ioNames, ioVals);
+                for (int i = 0; i < n; i++)
+                {
+                    double[] v;
+                    if (io.TryGetValue(ioNames[i], out v)) v[1] = Val(ioVals[i]);
+                }
+                lock (S) S.DriveIo = io;
+            }
+        }
+
+        void SampleBattery()
+        {
+            Native.SYSTEM_POWER_STATUS ps;
+            if (!Native.PowerStatus(out ps)) return;
+            bool has = (ps.BatteryFlag & 128) == 0 && ps.BatteryFlag != 255;
+            lock (S)
+            {
+                S.HasBattery = has;
+                S.AcLine = ps.ACLineStatus == 1;
+                S.Charging = has && (ps.BatteryFlag & 8) != 0;
+                S.BatteryPercent = has && ps.BatteryLifePercent <= 100 ? ps.BatteryLifePercent : -1;
+                S.BatterySecs = has && ps.BatteryLifeTime >= 0 ? ps.BatteryLifeTime : -1;
+                if (has && S.BatteryPercent >= 0) S.BatteryHist.Add(S.BatteryPercent);
+            }
+        }
+
+        // 1 分ごとに主な値を CSV に追記する (障害の調査や消費の把握用)
+        void WriteCsv()
+        {
+            string path = Path.Combine(AppPaths.DataDir, "deskmeter-" + DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".csv");
+            var sb = new StringBuilder();
+            if (!File.Exists(path)) sb.AppendLine("time,cpu_pct,cpu_mhz,mem_used_mb,mem_total_mb,gpu_pct,gpu_temp_c,vram_used_mb,net_up_bps,net_down_bps,disk_read_bps,disk_write_bps,ping_ms,cpu_temp_c,cpu_power_w,battery_pct");
+            lock (S)
+            {
+                sb.Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+                Csv(sb, S.CpuTotal, "0.#"); Csv(sb, S.CpuMHz, "0");
+                Csv(sb, S.RamTotal > 0 ? (S.RamTotal - S.RamAvail) / 1048576.0 : double.NaN, "0"); Csv(sb, S.RamTotal > 0 ? S.RamTotal / 1048576.0 : double.NaN, "0");
+                Csv(sb, S.GpuOk ? S.GpuUtil : float.NaN, "0"); Csv(sb, S.GpuOk ? S.GpuTemp : float.NaN, "0"); Csv(sb, S.GpuOk ? S.VramUsedMB : float.NaN, "0");
+                Csv(sb, S.UpBps, "0"); Csv(sb, S.DownBps, "0"); Csv(sb, S.ReadBps, "0"); Csv(sb, S.WriteBps, "0");
+                Csv(sb, S.PingMs >= 0 ? S.PingMs : double.NaN, "0");
+                Csv(sb, S.CpuTemp, "0"); Csv(sb, S.CpuPowerW, "0.#");
+                Csv(sb, S.HasBattery && S.BatteryPercent >= 0 ? S.BatteryPercent : double.NaN, "0");
+            }
+            sb.AppendLine();
+            File.AppendAllText(path, sb.ToString(), Encoding.UTF8);
+        }
+
+        static void Csv(StringBuilder sb, double v, string fmt)
+        {
+            sb.Append(',');
+            if (!double.IsNaN(v) && !double.IsInfinity(v)) sb.Append(v.ToString(fmt, CultureInfo.InvariantCulture));
         }
 
         // ドライブの問い合わせは応答しないドライブ (切れたネットワーク越しの VHD など) で何十秒も止まることがあるので、計測スレッドから外す
@@ -775,7 +855,13 @@ namespace DeskMeter
                     }
                 }
                 catch { }
-                lock (S) S.PingMs = ms;
+                lock (S)
+                {
+                    S.PingMs = ms;
+                    S.PingSent++;
+                    if (ms < 0) S.PingLost++;
+                    S.PingHist.Add(ms >= 0 ? ms : 1500);   // タイムアウトは上限値で積んで、グラフでは天井に張り付く
+                }
                 Interlocked.Exchange(ref pingBusy, 0);
             });
         }
@@ -1194,6 +1280,14 @@ namespace DeskMeter
             });
         }
 
+        // 設定の単位を Open-Meteo の引数に (既定は °C と km/h)
+        string WeatherUnitParams()
+        {
+            if (cfg.WeatherUnits == "imperial") return "&temperature_unit=fahrenheit&wind_speed_unit=mph";
+            if (cfg.WeatherUnits == "metric-ms") return "&wind_speed_unit=ms";
+            return "";
+        }
+
         internal static string ReadErrorReason(WebException wex)
         {
             try
@@ -1219,7 +1313,7 @@ namespace DeskMeter
                 "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m" +
                 "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max" +
                 "&hourly=precipitation_probability&forecast_hours=1" +
-                "&timezone=auto&forecast_days=4", cfg.Latitude, cfg.Longitude);
+                "&timezone=auto&forecast_days=4", cfg.Latitude, cfg.Longitude) + WeatherUnitParams();
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Timeout = 10000;
             req.ReadWriteTimeout = 10000;   // 本文の受信が途中で止まったときも 10 秒で諦める (既定は 5 分)

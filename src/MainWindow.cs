@@ -30,6 +30,18 @@ namespace DeskMeter
             }
             if (Array.IndexOf(args, "--edit") >= 0) MainWindow.SnapshotEdit = true;   // 編集モードの見た目を確認する用
             // 起動中のインスタンスへの命令 (スクリプトや自動テスト用): 配置編集の切り替え / 設定の再読み込み
+            // --export-settings <zip> / --import-settings <zip> : 設定一式の書き出し / 読み込み (起動中の DeskMeter は読み込み後に自動で再読み込みする)
+            for (int i = 0; i + 1 < args.Length; i++)
+            {
+                if (args[i] != "--export-settings" && args[i] != "--import-settings") continue;
+                try
+                {
+                    if (args[i] == "--export-settings") SettingsPack.Export(Settings.Load(), args[i + 1]);
+                    else SettingsPack.Import(args[i + 1]);
+                }
+                catch (Exception ex) { Log.Write(args[i], ex); Environment.ExitCode = 1; }
+                return;
+            }
             if (Array.IndexOf(args, "--toggle-edit") >= 0 || Array.IndexOf(args, "--reload") >= 0)
             {
                 try
@@ -115,7 +127,7 @@ namespace DeskMeter
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miTimer;
 
         public MainWindow(string snapshotPath)
         {
@@ -156,6 +168,8 @@ namespace DeskMeter
                 RestorePosition();
             };
             MouseRightButtonUp += delegate { ShowMenu(); };
+            MouseEnter += delegate { if (cfg.HoverOpacity < 100) Opacity = 1; };
+            MouseLeave += delegate { if (cfg.HoverOpacity < 100) Opacity = cfg.HoverOpacity / 100.0; };
             Closed += delegate { Cleanup(); };
             // 内容の高さが決まった / 変わったときに、右端・下端基準の位置を保つ
             SizeChanged += delegate { if (!dragging) RestorePosition(); };
@@ -171,6 +185,7 @@ namespace DeskMeter
                 Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
                 {
                     InvalidateAll();
+                    CheckAlerts();
                     if (!timer.IsEnabled) ScheduleNextTick();
                 }));
             };
@@ -390,6 +405,8 @@ namespace DeskMeter
                 {
                     bool fs = cfg.Mode != "topmost" && FullscreenCoversUs();
                     if (fs != fullscreenApp) { fullscreenApp = fs; UpdatePaused(); }
+                    bool mx = cfg.HideWhenMaximized && !userHidden && MaximizedCoversUs();
+                    if (mx != hiddenByMax) SetAutoHidden(mx);
                 };
                 fullscreenTimer.Start();
             }
@@ -401,6 +418,7 @@ namespace DeskMeter
             ApplyMode();
             ApplyClickThrough();
             ApplyHotkey();
+            ApplyHoverOpacity();
         }
 
         // 前面のフルスクリーンのウィンドウが、DeskMeter の表示中の全ウィンドウのあるモニターを覆っているか。
@@ -427,6 +445,26 @@ namespace DeskMeter
             catch { return false; }
         }
 
+        // 前面のウィンドウが最大化されていて、DeskMeter の表示中の全ウィンドウと同じモニターにあるか
+        bool MaximizedCoversUs()
+        {
+            try
+            {
+                IntPtr fg = Native.GetForegroundWindow();
+                if (fg == IntPtr.Zero || IsOurWindow(fg) || !Native.IsZoomed(fg)) return false;
+                string mon = WF.Screen.FromHandle(fg).DeviceName;
+                bool any = false;
+                foreach (IntPtr wh in AllHwnds())
+                {
+                    if (wh == hwnd && hiddenByFloat) continue;
+                    any = true;
+                    if (WF.Screen.FromHandle(wh).DeviceName != mon) return false;
+                }
+                return any;
+            }
+            catch { return false; }
+        }
+
         IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             if (msg == Native.WM_MOUSEACTIVATE)
@@ -435,9 +473,13 @@ namespace DeskMeter
                 handled = true;
                 return new IntPtr(Native.MA_NOACTIVATE);
             }
-            if (msg == Native.WM_HOTKEY && wParam.ToInt32() == HotkeyId)
+            if (msg == Native.WM_HOTKEY)
             {
-                ToggleVisible();
+                int id = wParam.ToInt32();
+                if (id == HotkeyId) ToggleVisible();
+                else if (id == HotkeyId + 1) SetEditMode(!view.EditMode);
+                else if (id == HotkeyId + 2) { cfg.ClickThrough = !cfg.ClickThrough; ApplyClickThrough(); cfg.Save(); }
+                else return IntPtr.Zero;
                 handled = true;
                 return IntPtr.Zero;
             }
@@ -709,6 +751,20 @@ namespace DeskMeter
             miPanels.DropDownItems.Add(new WF.ToolStripSeparator());
             AddToggle(miPanels, "コアを2列で表示 (高さを節約)", "CompactCores");
             menu.Items.Add(miPanels);
+            miClockCal = new WF.ToolStripMenuItem("時計・カレンダー");
+            AddToggle(miClockCal, "24 時間制 (オフで 12 時間制)", "Clock24h");
+            AddToggle(miClockCal, "週を月曜から始める", "WeekStartMonday");
+            menu.Items.Add(miClockCal);
+            miTimer = new WF.ToolStripMenuItem("タイマー (時計パネルに残り時間、終わるとトレイで通知)");
+            foreach (int m in new[] { 5, 10, 25, 45, 60 })
+            {
+                int min = m;
+                miTimer.DropDownItems.Add(Item(min + " 分", delegate { StartCountdownTimer(min); }));
+            }
+            miTimer.DropDownItems.Add(new WF.ToolStripSeparator());
+            miTimer.DropDownItems.Add(Item("止める", delegate { lock (sampler.S) { sampler.S.TimerEndTick = 0; } InvalidateAll(); }));
+            menu.Items.Add(miTimer);
+            menu.Items.Add(BuildAlertMenu());
 
             miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
             menu.Items.Add(miEdit);
@@ -719,8 +775,19 @@ namespace DeskMeter
             menu.Items.Add(new WF.ToolStripSeparator());
             miLock = Item("位置を固定", delegate { cfg.Locked = !cfg.Locked; cfg.Save(); });
             miClick = Item("クリックを透過 (解除はトレイアイコンから)", delegate { cfg.ClickThrough = !cfg.ClickThrough; ApplyClickThrough(); cfg.Save(); });
+            miHideMax = Item("同じモニターで最大化中のウィンドウがあれば隠す", delegate { cfg.HideWhenMaximized = !cfg.HideWhenMaximized; if (!cfg.HideWhenMaximized) SetAutoHidden(false); cfg.Save(); });
+            miHover = new WF.ToolStripMenuItem("普段は薄く表示 (マウスを載せると不透明)");
+            foreach (int p in new[] { 100, 30, 50, 70 })
+            {
+                int pct = p;
+                var mi = Item(pct == 100 ? "無効" : pct + "%", delegate { cfg.HoverOpacity = pct; ApplyHoverOpacity(); cfg.Save(); });
+                mi.Tag = pct;
+                miHover.DropDownItems.Add(mi);
+            }
             menu.Items.Add(miLock);
             menu.Items.Add(miClick);
+            menu.Items.Add(miHideMax);
+            menu.Items.Add(miHover);
             miVisible = Item("ウィジェットを隠す", ToggleVisible);
             menu.Items.Add(miVisible);
             miHotkey = new WF.ToolStripMenuItem("ホットキー (表示/非表示)");
@@ -732,13 +799,26 @@ namespace DeskMeter
                 miHotkey.DropDownItems.Add(mi);
             }
             menu.Items.Add(miHotkey);
+            miHotkeyEdit = HotkeyMenu("ホットキー (配置の編集)", "EditHotkey", new[] { "", "Ctrl+Alt+E", "Ctrl+Shift+E", "Win+Shift+E" });
+            menu.Items.Add(miHotkeyEdit);
+            miHotkeyClick = HotkeyMenu("ホットキー (クリック透過の切り替え)", "ClickThroughHotkey", new[] { "", "Ctrl+Alt+T", "Ctrl+Shift+T", "Win+Shift+T" });
+            menu.Items.Add(miHotkeyClick);
 
             menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add(Item("天気を今すぐ更新", delegate { sampler.RefreshWeatherNow(); }));
             menu.Items.Add(Item("天気の場所を設定...", ShowLocationDialog));
+            miWeatherUnits = new WF.ToolStripMenuItem("天気の単位");
+            foreach (string[] u in new[] { new[] { "metric", "°C / km/h" }, new[] { "metric-ms", "°C / m/s" }, new[] { "imperial", "°F / mph" } })
+            {
+                string v = u[0];
+                var mi = Item(u[1], delegate { cfg.WeatherUnits = v; cfg.Save(); sampler.RefreshWeatherNow(); });
+                mi.Tag = v;
+                miWeatherUnits.DropDownItems.Add(mi);
+            }
+            menu.Items.Add(miWeatherUnits);
             menu.Items.Add(Item("Peak と起動後の通信量をリセット", delegate
             {
-                lock (sampler.S) { sampler.S.PeakBps = 0; sampler.S.SessUp = 0; sampler.S.SessDown = 0; }
+                lock (sampler.S) { sampler.S.PeakBps = 0; sampler.S.SessUp = 0; sampler.S.SessDown = 0; sampler.S.PingSent = 0; sampler.S.PingLost = 0; }
                 InvalidateAll();
             }));
             miAuto = Item("Windows 起動時に開始", ToggleAutoStart);
@@ -746,10 +826,14 @@ namespace DeskMeter
             menu.Items.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
             menu.Items.Add(Item("設定ファイルを再読み込み", ReloadSettings));
             menu.Items.Add(Item("設定を初期値に戻す...", ResetSettings));
-            var folders = new WF.ToolStripMenuItem("フォルダーとログを開く");
+            menu.Items.Add(Item("設定一式を書き出す (zip)...", ExportSettings));
+            menu.Items.Add(Item("設定一式を読み込む (zip)...", ImportSettings));
+            var folders = miFolders = new WF.ToolStripMenuItem("フォルダーとログを開く");
             folders.DropDownItems.Add(Item("DeskMeter のフォルダー (設定・スキン・テーマ)", delegate { OpenPath(AppPaths.Dir); }));
             if (AppPaths.Redirected) folders.DropDownItems.Add(Item("設定・ログ・テーマの保存先 (" + AppPaths.DataDir + ")", delegate { OpenPath(AppPaths.DataDir); }));
             folders.DropDownItems.Add(Item("ログ (deskmeter.log)", OpenLog));
+            folders.DropDownItems.Add(new WF.ToolStripSeparator());
+            AddToggle(folders, "1 分ごとに CSV に記録する (deskmeter-日付.csv)", "LogCsv");
             menu.Items.Add(folders);
             var help = new WF.ToolStripMenuItem("ヘルプ");
             help.DropDownItems.Add(Item("天気の場所を設定する (地名検索 / 緯度・経度)", delegate { OpenHelp("weather-location.html"); }));
@@ -776,6 +860,20 @@ namespace DeskMeter
                 miEdit.Checked = view.EditMode;
                 miUndoLayout.Enabled = view.EditMode && view.CanUndo;
                 miUndoLayout.Visible = view.EditMode;
+                SyncToggles(miClockCal);
+                SyncToggles(miFolders);
+                SyncIntMenus();
+                SyncHotkeyMenu(miHotkeyEdit, cfg.EditHotkey);
+                SyncHotkeyMenu(miHotkeyClick, cfg.ClickThroughHotkey);
+                miHideMax.Checked = cfg.HideWhenMaximized;
+                foreach (WF.ToolStripMenuItem mi in miHover.DropDownItems) mi.Checked = (int)mi.Tag == cfg.HoverOpacity;
+                MarkCustom(miHover, cfg.HoverOpacity + "%", CustomInt);
+                foreach (WF.ToolStripMenuItem mi in miWeatherUnits.DropDownItems) mi.Checked = (string)mi.Tag == cfg.WeatherUnits;
+                foreach (WF.ToolStripItem it in miPanels.DropDownItems)
+                {
+                    var mi = it as WF.ToolStripMenuItem;
+                    if (mi != null && (mi.Tag as string) == "battery") mi.Enabled = sampler.S.HasBattery || cfg.HasPanel("battery");   // デスクトップ機では選べない
+                }
                 foreach (WF.ToolStripMenuItem mi in miShadow.DropDownItems) mi.Checked = (string)mi.Tag == cfg.TextShadow;
                 foreach (WF.ToolStripMenuItem mi in miMascotPlace.DropDownItems) mi.Checked = (string)mi.Tag == cfg.MascotPlacement;
                 foreach (WF.ToolStripMenuItem mi in miMascotSize.DropDownItems) mi.Checked = (int)mi.Tag == cfg.MascotSize;
@@ -849,6 +947,36 @@ namespace DeskMeter
         }
 
         // Settings の bool フィールドを切り替えるチェック項目
+        WF.ToolStripMenuItem HotkeyMenu(string title, string field, string[] presets)
+        {
+            FieldInfo f = typeof(Settings).GetField(field);
+            var m = new WF.ToolStripMenuItem(title);
+            foreach (string k in presets)
+            {
+                string v = k;
+                var mi = Item(v.Length == 0 ? "無効" : v, delegate { f.SetValue(cfg, v); ApplyHotkey(); cfg.Save(); });
+                mi.Tag = v;
+                m.DropDownItems.Add(mi);
+            }
+            return m;
+        }
+
+        void SyncHotkeyMenu(WF.ToolStripMenuItem m, string value)
+        {
+            foreach (WF.ToolStripMenuItem mi in m.DropDownItems) mi.Checked = string.Equals((string)mi.Tag, value, StringComparison.OrdinalIgnoreCase);
+            MarkCustom(m, value, CustomStr);
+        }
+
+        // AddToggle で作った項目のチェックを設定に合わせる
+        void SyncToggles(WF.ToolStripMenuItem parent)
+        {
+            foreach (WF.ToolStripItem it in parent.DropDownItems)
+            {
+                var mi = it as WF.ToolStripMenuItem;
+                if (mi != null && mi.Tag is FieldInfo) mi.Checked = (bool)((FieldInfo)mi.Tag).GetValue(cfg);
+            }
+        }
+
         void AddToggle(WF.ToolStripMenuItem parent, string text, string field)
         {
             FieldInfo f = typeof(Settings).GetField(field);
@@ -893,6 +1021,8 @@ namespace DeskMeter
             ApplyMode();
             ApplyClickThrough();
             ApplyHotkey();
+            ApplyHoverOpacity();
+            ResetAlertState();
             sampler.RefreshWeatherNow();
             WarnSettingsProblems();
             WarnSkinProblems();
@@ -910,18 +1040,27 @@ namespace DeskMeter
         // ---------------------------------------------------------------- hotkey / second instance / panel double-click
 
         // Settings.Hotkey を RegisterHotKey で登録し直す。他のアプリと競合して登録できなければログに書いて無視
+        // ホットキーは 3 つ: HotkeyId = 表示/非表示, +1 = 配置の編集, +2 = クリック透過
+        readonly bool[] hotkeyOk = new bool[3];
+
         void ApplyHotkey()
         {
             if (hwnd == IntPtr.Zero || snapshotPath != null) return;
-            if (hotkeyRegistered) { Native.UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
-            uint mods, vk;
-            if (!ParseHotkey(cfg.Hotkey, out mods, out vk)) return;
-            if (Native.RegisterHotKey(hwnd, HotkeyId, mods | Native.MOD_NOREPEAT, vk)) hotkeyRegistered = true;
-            else
+            string[] keys = { cfg.Hotkey, cfg.EditHotkey, cfg.ClickThroughHotkey };
+            string[] names = { "表示/非表示", "配置の編集", "クリック透過" };
+            for (int i = 0; i < keys.Length; i++)
             {
-                Log.Write("hotkey " + cfg.Hotkey, new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
-                if (tray != null) tray.ShowBalloonTip(5000, AppName, "ホットキー " + cfg.Hotkey + " は他のアプリが使っているため登録できませんでした。", WF.ToolTipIcon.Warning);
+                if (hotkeyOk[i]) { Native.UnregisterHotKey(hwnd, HotkeyId + i); hotkeyOk[i] = false; }
+                uint mods, vk;
+                if (!ParseHotkey(keys[i], out mods, out vk)) continue;
+                if (Native.RegisterHotKey(hwnd, HotkeyId + i, mods | Native.MOD_NOREPEAT, vk)) hotkeyOk[i] = true;
+                else
+                {
+                    Log.Write("hotkey " + keys[i], new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+                    if (tray != null) tray.ShowBalloonTip(5000, AppName, "ホットキー " + keys[i] + " (" + names[i] + ") は他のアプリが使っているため登録できませんでした。", WF.ToolTipIcon.Warning);
+                }
             }
+            hotkeyRegistered = hotkeyOk[0];
         }
 
         // settings.json がメモ帳などで書き換えられたら、自動で読み直す (再読み込みを忘れて上書きしてしまわないように)
@@ -1033,6 +1172,9 @@ namespace DeskMeter
                         break;
                     case "network":
                         Process.Start("control.exe", "ncpa.cpl");
+                        break;
+                    case "battery":
+                        StartFirst("ms-settings:batterysaver", "powercfg.cpl");
                         break;
                     case "weather":
                         Process.Start(string.Format(System.Globalization.CultureInfo.InvariantCulture, "https://www.windy.com/{0:0.###}/{1:0.###}", cfg.Latitude, cfg.Longitude));
@@ -1257,6 +1399,82 @@ namespace DeskMeter
             if (tray != null) tray.ShowBalloonTip(4000, AppName, "設定を初期値に戻しました。", WF.ToolTipIcon.Info);
         }
 
+        readonly DispatcherTimer countdownTimer = new DispatcherTimer();
+
+        void StartCountdownTimer(int minutes)
+        {
+            lock (sampler.S)
+            {
+                sampler.S.TimerMinutes = minutes;
+                sampler.S.TimerEndTick = (long)Native.GetTickCount64() + minutes * 60000L;
+            }
+            if (countdownTimer.Interval.TotalMilliseconds < 1)
+            {
+                countdownTimer.Interval = TimeSpan.FromSeconds(1);
+                countdownTimer.Tick += delegate
+                {
+                    long end;
+                    int min;
+                    lock (sampler.S) { end = sampler.S.TimerEndTick; min = sampler.S.TimerMinutes; }
+                    if (end <= 0) { countdownTimer.Stop(); return; }
+                    if ((long)Native.GetTickCount64() >= end)
+                    {
+                        lock (sampler.S) sampler.S.TimerEndTick = -1;   // 「終了」を次にタイマーを使うまで出す
+                        countdownTimer.Stop();
+                        if (tray != null) tray.ShowBalloonTip(10000, AppName + " のタイマー", min + " 分のタイマーが終わりました。", WF.ToolTipIcon.Info);
+                    }
+                    InvalidateAll();
+                };
+            }
+            countdownTimer.Start();
+            InvalidateAll();
+        }
+
+        // 設定一式の書き出し / 読み込み (zip)
+        void ExportSettings()
+        {
+            try
+            {
+                using (var dlg = new WF.SaveFileDialog())
+                {
+                    dlg.Filter = "zip (*.zip)|*.zip";
+                    dlg.FileName = "DeskMeter-settings-" + DateTime.Now.ToString("yyyyMMdd") + ".zip";
+                    if (dlg.ShowDialog() != WF.DialogResult.OK) return;
+                    SettingsPack.Export(cfg, dlg.FileName);
+                    if (tray != null) tray.ShowBalloonTip(4000, AppName, "設定一式を書き出しました: " + Path.GetFileName(dlg.FileName), WF.ToolTipIcon.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("export settings", ex);
+                if (tray != null) tray.ShowBalloonTip(5000, AppName, "書き出せませんでした。deskmeter.log を確認してください。", WF.ToolTipIcon.Warning);
+            }
+        }
+
+        void ImportSettings()
+        {
+            try
+            {
+                string path;
+                using (var dlg = new WF.OpenFileDialog())
+                {
+                    dlg.Filter = "zip (*.zip)|*.zip";
+                    if (dlg.ShowDialog() != WF.DialogResult.OK) return;
+                    path = dlg.FileName;
+                }
+                if (WF.MessageBox.Show("zip の設定一式を取り込みますか?\n今の settings.json は settings.backup-日時.json として残します。同じ名前のテーマ・スキンは上書きします。",
+                    AppName, WF.MessageBoxButtons.YesNo, WF.MessageBoxIcon.Question, WF.MessageBoxDefaultButton.Button2) != WF.DialogResult.Yes) return;
+                string what = SettingsPack.Import(path);
+                ReloadSettings();
+                if (tray != null) tray.ShowBalloonTip(5000, AppName, "取り込みました: " + what, WF.ToolTipIcon.Info);
+            }
+            catch (Exception ex)
+            {
+                Log.Write("import settings", ex);
+                if (tray != null) tray.ShowBalloonTip(5000, AppName, "取り込めませんでした。deskmeter.log を確認してください。", WF.ToolTipIcon.Warning);
+            }
+        }
+
         void OpenSettings()
         {
             try
@@ -1307,7 +1525,8 @@ namespace DeskMeter
                 SystemEvents.SessionSwitch -= OnSessionSwitch;
             }
             if (winEventHook != IntPtr.Zero) Native.UnhookWinEvent(winEventHook);
-            if (hotkeyRegistered) { Native.UnregisterHotKey(hwnd, HotkeyId); hotkeyRegistered = false; }
+            for (int i = 0; i < hotkeyOk.Length; i++) if (hotkeyOk[i]) { Native.UnregisterHotKey(hwnd, HotkeyId + i); hotkeyOk[i] = false; }
+            hotkeyRegistered = false;
             showStop.Set();
             if (showThread != null) { showThread.Join(1000); showThread = null; }   // 待機中のスレッドが抜けてからハンドルを閉じる
             if (showEvent != null) { showEvent.Close(); showEvent = null; }

@@ -14,6 +14,7 @@ namespace DeskMeter
     {
         readonly List<PanelWindow> floats = new List<PanelWindow>();
         bool userHidden;         // 「ウィジェットを隠す」で隠している
+        bool hiddenByMax;        // 同じモニターの最大化ウィンドウが前面なので隠している (設定で有効なとき)
         bool hiddenByFloat;      // 列にパネルが無くなったので本体だけ隠している
         string menuPanelId;      // 独立ウィンドウ上で右クリックしたパネル
         WF.ToolStripMenuItem miDetach, miAttachThis, miPresets, miThemes;
@@ -103,6 +104,34 @@ namespace DeskMeter
             }
         }
 
+        // 最大化ウィンドウによる自動の非表示/再表示 (ユーザーの「隠す」とは別に数える)
+        void SetAutoHidden(bool on)
+        {
+            if (on == hiddenByMax) return;
+            hiddenByMax = on;
+            if (on)
+            {
+                if (IsVisible) Hide();
+                foreach (PanelWindow f in floats) f.Hide();
+            }
+            else if (!userHidden)
+            {
+                if (!hiddenByFloat) { Show(); ApplyMode(); }
+                foreach (PanelWindow f in floats) { f.Show(); f.ApplyMode(); }
+                ScheduleNextTick();
+                sampler.Poke();
+            }
+            UpdatePaused();
+        }
+
+        // 普段の不透明度 (HoverOpacity)。マウスが載っている窓は 100%
+        void ApplyHoverOpacity()
+        {
+            double dim = cfg.HoverOpacity / 100.0;
+            Opacity = IsMouseOver ? 1 : dim;
+            foreach (PanelWindow f in floats) f.Opacity = f.IsMouseOver ? 1 : dim;
+        }
+
         void ToggleVisible()
         {
             userHidden = !userHidden;
@@ -114,6 +143,7 @@ namespace DeskMeter
             }
             else
             {
+                hiddenByMax = false;   // 手で表示したら、最大化中の自動非表示は次の確認までいったん解く
                 if (!hiddenByFloat) { Show(); ApplyMode(); }
                 foreach (PanelWindow f in floats) { f.Show(); f.ApplyMode(); }
                 ScheduleNextTick();
@@ -126,7 +156,7 @@ namespace DeskMeter
         // 隠している間とセッションロック中は計測をスキップする
         void UpdatePaused()
         {
-            sampler.Paused = userHidden || sessionLocked || displayOff || fullscreenApp;
+            sampler.Paused = userHidden || hiddenByMax || sessionLocked || displayOff || fullscreenApp;
             ScheduleNextTick();
             sampler.Poke();   // 止めるときもすぐ反映する (次の計測を待たずに nvidia-smi を止める)
         }

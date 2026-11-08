@@ -68,6 +68,33 @@ namespace DeskMeter
         public bool ShowForecast = true;
         // カレンダーに日本の祝日を表示する
         public bool ShowHolidays = true;
+        // 時計を 24 時間制にする (false で 12 時間制 + AM/PM)
+        public bool Clock24h = true;
+        // カレンダーの週を月曜から始める
+        public bool WeekStartMonday = false;
+        // 天気の単位: "metric" (°C, km/h) / "metric-ms" (°C, m/s) / "imperial" (°F, mph)
+        public string WeatherUnits = "metric";
+        // 1 分ごとに主な値を deskmeter-日付.csv に追記する
+        public bool LogCsv = false;
+        // 通知 (トレイのバルーン)。0 で無効
+        public int AlertCpuPct = 0;        // CPU 使用率がこの % 以上の状態が AlertSeconds 続いたら
+        public int AlertMemPct = 0;        // メモリ使用率 (同上)
+        public int AlertDiskFreePct = 0;   // 空きがこの % 未満のドライブがあれば
+        public int AlertTempC = 0;         // CPU (HWiNFO) または GPU の温度がこの °C 以上なら
+        public int AlertBatteryPct = 0;    // バッテリー駆動中に残量がこの % 以下なら
+        public int AlertSeconds = 60;      // CPU・メモリの「続いたら」の長さ (秒)
+        // 追加のホットキー (空で無効): 配置の編集の切り替え / クリック透過の切り替え
+        public string EditHotkey = "";
+        public string ClickThroughHotkey = "";
+        // 同じモニターで最大化したウィンドウが前面の間は隠す (最前面・通常モード向け)
+        public bool HideWhenMaximized = false;
+        // 普段の不透明度 (%)。100 未満にすると薄くなり、マウスを載せている間だけ 100% になる
+        public int HoverOpacity = 100;
+        // メモ・カウントダウンパネル (notes): メモは 1 行ずつ、カウントダウンは {"Name": "旅行", "Date": "2026-12-24"}
+        public List<string> Notes = new List<string>();
+        public List<Countdown> Countdowns = new List<Countdown>();
+        // 時計パネルに足す世界時計: "Windows のタイムゾーン ID|表示名" (ID は tzutil /l で一覧できる。例 "Eastern Standard Time|New York")
+        public List<string> WorldClocks = new List<string>();
 
         public static string FilePath
         {
@@ -167,7 +194,7 @@ namespace DeskMeter
             catch (Exception ex) { Log.Write("Settings.Backup", ex); return null; }
         }
 
-        public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather", "rings", "memory" };
+        public static readonly string[] PanelIds = { "gpu", "network", "drives", "topmem", "cpu", "topcpu", "clock", "calendar", "datetile", "weather", "rings", "memory", "battery", "notes" };
         public const int MaxColumns = 6;
 
         public static string PanelName(string id)
@@ -186,6 +213,8 @@ namespace DeskMeter
                 case "weather": return "天気";
                 case "rings": return "リングゲージ";
                 case "memory": return "メモリ (詳細)";
+                case "battery": return "バッテリー";
+                case "notes": return "メモ・カウントダウン";
                 default: return id;
             }
         }
@@ -203,6 +232,8 @@ namespace DeskMeter
         static int DefaultColumn(string id)
         {
             if (id == "rings" || id == "memory") return 1;
+            if (id == "battery") return 0;
+            if (id == "notes") return 2;
             List<List<string>> d = DefaultLayout();
             for (int i = 0; i < d.Count; i++) if (d[i].Contains(id)) return i;
             return d.Count - 1;
@@ -279,6 +310,28 @@ namespace DeskMeter
             NormalizeFloating();
             if (PingHost == null) PingHost = "";
             if (LocationName == null) LocationName = "";
+            if (WeatherUnits != "metric-ms" && WeatherUnits != "imperial") WeatherUnits = "metric";
+            AlertCpuPct = Math.Max(0, Math.Min(100, AlertCpuPct));
+            AlertMemPct = Math.Max(0, Math.Min(100, AlertMemPct));
+            AlertDiskFreePct = Math.Max(0, Math.Min(100, AlertDiskFreePct));
+            AlertTempC = Math.Max(0, Math.Min(150, AlertTempC));
+            AlertBatteryPct = Math.Max(0, Math.Min(100, AlertBatteryPct));
+            if (AlertSeconds < 5 || AlertSeconds > 3600) AlertSeconds = 60;
+            if (EditHotkey == null) EditHotkey = "";
+            if (ClickThroughHotkey == null) ClickThroughHotkey = "";
+            if (HoverOpacity < 20 || HoverOpacity > 100) HoverOpacity = 100;
+            if (Notes == null) Notes = new List<string>();
+            Notes.RemoveAll(delegate(string n) { return n == null; });
+            if (Countdowns == null) Countdowns = new List<Countdown>();
+            Countdowns.RemoveAll(delegate(Countdown c) { return c == null || string.IsNullOrWhiteSpace(c.Date); });
+            if (WorldClocks == null) WorldClocks = new List<string>();
+            WorldClocks.RemoveAll(delegate(string w) { return string.IsNullOrWhiteSpace(w); });
+        }
+
+        public class Countdown
+        {
+            public string Name;
+            public string Date;   // "yyyy-MM-dd"
         }
 
         // 設定ファイルを読み直して、このインスタンスに上書きする (他のオブジェクトが同じ参照を持っているため)。
@@ -368,7 +421,7 @@ namespace DeskMeter
             File.Delete(tmp);
         }
 
-        static string Pretty(string json)
+        internal static string Pretty(string json)
         {
             var sb = new StringBuilder();
             int indent = 0;
