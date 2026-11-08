@@ -157,7 +157,7 @@ namespace DeskMeter
         IntPtr hDriveRead, hDriveWrite;   // ドライブごとの読み書き (LogicalDisk(*))
         readonly List<string> ioNames = new List<string>(16);
         readonly List<double> ioVals = new List<double>(16);
-        long nextCsv;
+        long nextCsv = 60000;   // 最初の行は起動 1 分後 (起動直後は通信や Ping がまだ 0 なので)
         readonly List<string> coreNames = new List<string>(64);
         readonly List<double> coreValues = new List<double>(64);
         readonly List<KeyValuePair<int, float>> coreSorted = new List<KeyValuePair<int, float>>(64);

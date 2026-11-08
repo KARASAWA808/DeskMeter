@@ -13,7 +13,7 @@ namespace DeskMeter
         const long AlertRepeatMs = 30 * 60000L;
         long cpuOverSince, memOverSince;
         long lastCpuAlert, lastMemAlert, lastDiskAlert, lastTempAlert, lastBatAlert;
-        bool diskAlerting, tempAlerting, batAlerting;
+        bool cpuAlerting, memAlerting, diskAlerting, tempAlerting, batAlerting;
         readonly List<KeyValuePair<WF.ToolStripMenuItem, FieldInfo>> intMenus = new List<KeyValuePair<WF.ToolStripMenuItem, FieldInfo>>();
 
         void CheckAlerts()
@@ -51,26 +51,26 @@ namespace DeskMeter
                 if (cpu >= cfg.AlertCpuPct)
                 {
                     if (cpuOverSince == 0) cpuOverSince = now;
-                    else if (now - cpuOverSince >= cfg.AlertSeconds * 1000L && now - lastCpuAlert > AlertRepeatMs)
+                    else if (now - cpuOverSince >= cfg.AlertSeconds * 1000L && (!cpuAlerting || now - lastCpuAlert > AlertRepeatMs))
                     {
-                        lastCpuAlert = now;
+                        cpuAlerting = true; lastCpuAlert = now;
                         Notify("CPU 使用率が " + cfg.AlertCpuPct + "% 以上の状態が " + MeterView.SpanText(cfg.AlertSeconds) + " 続いています (いま " + Math.Round(cpu) + "%)。");
                     }
                 }
-                else cpuOverSince = 0;
+                else { cpuOverSince = 0; cpuAlerting = false; }
             }
             if (cfg.AlertMemPct > 0 && !double.IsNaN(memPct))
             {
                 if (memPct >= cfg.AlertMemPct)
                 {
                     if (memOverSince == 0) memOverSince = now;
-                    else if (now - memOverSince >= cfg.AlertSeconds * 1000L && now - lastMemAlert > AlertRepeatMs)
+                    else if (now - memOverSince >= cfg.AlertSeconds * 1000L && (!memAlerting || now - lastMemAlert > AlertRepeatMs))
                     {
-                        lastMemAlert = now;
+                        memAlerting = true; lastMemAlert = now;
                         Notify("メモリ使用率が " + cfg.AlertMemPct + "% 以上の状態が " + MeterView.SpanText(cfg.AlertSeconds) + " 続いています (いま " + Math.Round(memPct) + "%)。");
                     }
                 }
-                else memOverSince = 0;
+                else { memOverSince = 0; memAlerting = false; }
             }
             // ドライブの空き: 条件が成り立った最初の 1 回 (解消したらまた知らせる)
             if (cfg.AlertDiskFreePct > 0)
@@ -96,7 +96,7 @@ namespace DeskMeter
                     if (!tempAlerting || now - lastTempAlert > AlertRepeatMs)
                     {
                         tempAlerting = true; lastTempAlert = now;
-                        string which = !float.IsNaN(cpuTemp) && cpuTemp >= cfg.AlertTempC ? "CPU" : "GPU";
+                        string which = gpuOk && !float.IsNaN(gpuTemp) && t == gpuTemp ? "GPU" : "CPU";   // 表示する値のほう
                         Notify(which + " の温度が " + Math.Round(t) + " °C です (しきい値 " + cfg.AlertTempC + " °C)。");
                     }
                 }
@@ -126,7 +126,8 @@ namespace DeskMeter
         void ResetAlertState()
         {
             cpuOverSince = memOverSince = 0;
-            diskAlerting = tempAlerting = batAlerting = false;
+            cpuAlerting = memAlerting = diskAlerting = tempAlerting = batAlerting = false;
+            lastCpuAlert = lastMemAlert = lastDiskAlert = lastTempAlert = lastBatAlert = 0;   // しきい値を変えたらすぐ知らせ直せるように
         }
 
         // メニュー「通知」。各項目は整数の設定 1 つに対応し、0 が無効

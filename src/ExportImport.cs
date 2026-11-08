@@ -23,6 +23,7 @@ namespace DeskMeter
                 copy.BackgroundImage = PackImage(zip, cfg.BackgroundImage, added);
                 copy.MascotImage = PackImage(zip, cfg.MascotImage, added);
                 copy.Monitor = null; copy.MonitorId = null; copy.MonitorRect = null;   // モニターは PC ごとに違う
+                foreach (Settings.FloatPos fp in copy.FloatPositions) { fp.Monitor = null; fp.MonitorId = null; fp.Rect = null; }
                 AddText(zip, "settings.json", Settings.Pretty(ser.Serialize(copy)));
                 AddDir(zip, Settings.ThemeDir, "themes", "*.json");
                 AddDir(zip, Path.Combine(Settings.ThemeDir, "images"), "themes/images", "*.*");
@@ -52,11 +53,14 @@ namespace DeskMeter
                     }
                     else if (name.StartsWith("themes/images/")) { dest = Path.Combine(Settings.ThemeDir, "images", Path.GetFileName(name)); images++; }
                     else if (name.StartsWith("themes/") && name.EndsWith(".json")) { dest = Path.Combine(Settings.ThemeDir, Path.GetFileName(name)); themes++; }
-                    else if (name.StartsWith("skins/") && name.EndsWith(".json")) { dest = Path.Combine(Skin.SkinDir, Path.GetFileName(name)); skins++; }
+                    else if (name.StartsWith("skins/") && name.EndsWith(".json"))
+                    {
+                        if (AppPaths.Redirected) { Log.Write("import " + name, new InvalidOperationException("exe のフォルダーに書き込めないのでスキンは取り込みません")); continue; }
+                        dest = Path.Combine(Skin.SkinDir, Path.GetFileName(name)); skins++;
+                    }
                     else if (name.StartsWith("images/")) { dest = Path.Combine(dataDir, "images", Path.GetFileName(name)); images++; }
                     else continue;
-                    Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                    try { e.ExtractToFile(dest, true); }
+                    try { Directory.CreateDirectory(Path.GetDirectoryName(dest)); e.ExtractToFile(dest, true); }
                     catch (Exception ex) { Log.Write("import " + name, ex); if (name.StartsWith("skins/")) skins--; }
                 }
             }
