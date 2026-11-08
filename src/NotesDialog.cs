@@ -108,7 +108,7 @@ namespace DeskMeter
             {
                 string t = line.TrimEnd('\r').Trim();
                 if (t.Length == 0) continue;
-                int sp = t.IndexOf(' ');
+                int sp = t.IndexOfAny(new[] { ' ', '\t', '\u3000' });   // 半角・タブ・全角スペースのどれでも
                 string date = sp < 0 ? t : t.Substring(0, sp);
                 string name = sp < 0 ? "" : t.Substring(sp + 1).Trim();
                 DateTime d;

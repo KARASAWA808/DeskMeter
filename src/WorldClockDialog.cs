@@ -13,6 +13,7 @@ namespace DeskMeter
         readonly ComboBox zones = new ComboBox();
         readonly TextBox label = new TextBox();
         readonly ListBox list = new ListBox();
+        readonly TextBlock hint = new TextBlock();
         readonly List<string> entries = new List<string>();   // "ID|表示名"
 
         public WorldClockDialog(Settings cfg)
@@ -34,7 +35,6 @@ namespace DeskMeter
             root.RowDefinitions[2].Height = new GridLength(1, GridUnitType.Star);
             Content = root;
 
-            var hint = new TextBlock();
             hint.Text = "タイムゾーンを選び、表示名を付けて「追加」を押してください。時計パネルの日付の下に並びます。";
             hint.TextWrapping = TextWrapping.Wrap;
             hint.Margin = new Thickness(0, 0, 0, 8);
@@ -51,6 +51,9 @@ namespace DeskMeter
             label.Width = 120;
             label.Margin = new Thickness(6, 0, 0, 0);
             DockPanel.SetDock(label, Dock.Right);
+            // 表示名欄やゾーン欄で Enter を押したら「追加」(OK ではなく)
+            label.KeyDown += delegate(object s, System.Windows.Input.KeyEventArgs e) { if (e.Key == System.Windows.Input.Key.Enter) { Add(); e.Handled = true; } };
+            zones.KeyDown += delegate(object s, System.Windows.Input.KeyEventArgs e) { if (e.Key == System.Windows.Input.Key.Enter) { Add(); e.Handled = true; } };
             row.Children.Add(label);
             foreach (TimeZoneInfo tz in TimeZoneInfo.GetSystemTimeZones()) zones.Items.Add(tz);
             zones.DisplayMemberPath = "DisplayName";
@@ -110,10 +113,13 @@ namespace DeskMeter
         void Add()
         {
             var tz = zones.SelectedItem as TimeZoneInfo;
-            if (tz == null) return;
+            if (tz == null) { hint.Text = "先にタイムゾーンを選んでください。"; return; }
+            foreach (string e in entries)
+                if (e.StartsWith(tz.Id + "|", StringComparison.Ordinal) || e == tz.Id) { hint.Text = "そのタイムゾーンはもう入っています。"; return; }
             string name = label.Text.Trim();
             if (name.Length == 0) name = ShortName(tz);
             entries.Add(tz.Id + "|" + name.Replace('|', ' '));
+            hint.Text = "追加しました。OK で保存します。";
             label.Text = "";
             RefreshList();
         }

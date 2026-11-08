@@ -16,7 +16,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 | Network Meter | 上り/下り速度、ピーク、Ping（直近 60 回のグラフとロス数）、起動後と累計の通信量、内部 IP |
 | Drives Meter | 容量と使用率、全体とドライブごとの読み書き速度 |
 | Top CPU / Top Memory Meter | プロセス別の上位 10 件 |
-| Ring Gauges | CPU / RAM / GPU / VRAM の円形ゲージ |
+| Ring Gauges | CPU / RAM / GPU / VRAM の円形ゲージ（GPU が取れないときは Disk / Page） |
 | 時計・カレンダー・日付タイル | 稼働時間、新年までのカウントダウン、日本の祝日（その月の祝日名も）、世界時計。24/12 時間制、週の開始曜日を選べます |
 | Weather Meter | 現在の天気と 3 日予報（Open-Meteo、API キー不要）、月齢。単位は °C/km/h、°C/m/s、°F/mph |
 | Battery Meter | 残量、残り時間、AC/充電の状態、残量のグラフ（ノート PC。バッテリーの無い PC では選べません） |
@@ -49,7 +49,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
    初回は SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で起動できます。
 2. 右クリックでメニューが開きます。左ドラッグで移動します。タスクトレイのアイコンからも同じメニューを開けます（アイコンのクリックで表示/非表示、ツールチップに CPU・RAM・GPU の使用率）。初回はトレイの通知で同じ案内が出ます。画面の幅が 1400 px 未満（または高さが 800 px 未満）のときは 80% の大きさで始まります。
 3. 最初に決めるもの: 天気の場所（「計測と天気」→「天気の場所を設定...」。既定は東京駅付近）、大きさ（「見た目」→「サイズ」）、出す項目（「表示する項目」。NVIDIA 以外の GPU なら GPU パネルを外すのも手です）。
-3. 設定は exe と同じフォルダーの `settings.json` に保存されます（メニューの「設定ファイルを開く」で編集。保存すると自動で反映されます）。
+4. 設定は exe と同じフォルダーの `settings.json` に保存されます（メニューの「設定ファイルを開く」で編集。保存すると自動で反映されます）。
 
 メニューの構成:
 
@@ -115,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ## 常駐時の負荷の目安
 
-既定（1 秒更新、100%、Classic）で 1 コアの 2〜4%（28 コア機で全体の 0.1% 程度）、メモリ約 100 MB（ソフトウェア描画、GPU デバイスを作りません）。再描画は計測が終わるたびに 1 回だけで、ウィジェットを隠している間・ロック中・画面が消えている間・フルスクリーンのアプリ（ゲームや全画面の動画）が DeskMeter のあるモニターを覆っている間（最前面モード以外。別のモニターに見えていれば止まりません）は、計測も `nvidia-smi` も止まります。
+既定（1 秒更新、100%、Classic）で 1 コアの 2〜4%（28 コア機で全体の 0.1% 程度）、メモリ約 100 MB（ソフトウェア描画、GPU デバイスを作りません）。再描画は計測が終わるたびに 1 回（更新間隔が 1 秒より長く時計を出しているときは秒の変わり目にも 1 回）で、ウィジェットを隠している間・ロック中・画面が消えている間・フルスクリーンのアプリ（ゲームや全画面の動画）が DeskMeter のあるモニターを覆っている間（最前面モード以外。別のモニターに見えていれば止まりません）は、計測も `nvidia-smi` も止まります（通知と CSV 記録もその間は止まります。「最大化中は隠す」の非表示では計測は続きます）。
 
 タスクマネージャーのメモリ欄は 170 MB 前後に見えますが、そのうち約 150 MB は WPF が初期化する GPU ドライバーの DLL（NVIDIA では nvgpucomp64.dll など）を他のプロセスと共有しているぶんで、このアプリ固有の消費（プライベートバイト）は 90 MB 前後です。
 
@@ -125,7 +125,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ## settings.json の項目
 
-メニューで変えられるものがほとんどですが、`ShowIp` / `ShowForecast` / `ShowHolidays` と `Hotkey` の自由な組み合わせはファイルを直接編集します。範囲外の値は既定値に戻るか、範囲内に丸められます。読めない項目があるときは、その項目だけ既定値にして通知します。
+メニューで変えられるものがほとんどですが、ホットキーの候補に無いキーの組み合わせや `WorldClocks` の表示名の細かい調整はファイルを直接編集します。範囲外の値は既定値に戻るか、範囲内に丸められます。読めない項目があるときは、その項目だけ既定値にして通知します。
 
 | 項目 | 既定値 | 意味 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `WeatherUnits` | `"metric"` | 天気の単位: `metric`（°C, km/h）/ `metric-ms`（°C, m/s）/ `imperial`（°F, mph） |
 | `LogCsv` | `false` | 1 分ごとに CPU・メモリ・GPU・通信・ディスク・Ping・温度・バッテリーを `deskmeter-日付.csv` に追記する |
 | `Hotkey` | `""` | 表示/非表示のホットキー。`"Ctrl+Alt+D"` のように `Ctrl` / `Alt` / `Shift` / `Win` とキー名（`A`〜`Z`、`0`〜`9`、`F1`〜`F12`、`Space` など）を `+` でつなぐ。空で無効 |
-| `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `clock` `calendar` `datetile` `weather`。最大 6 列 |
+| `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `battery` `clock` `calendar` `datetile` `weather` `notes`。最大 6 列 |
 | `CompactCores` | `false` | コアごとの使用率を 2 列に詰める |
 | `Floating` / `FloatPositions` | `[]` | 切り離したパネルの ID と、その位置（モニター名と位置・大きさ、作業領域の左上からのピクセル） |
 | `Monitor` / `MonitorId` / `MonitorRect` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか（`MonX`/`MonY` は 0〜20000）。`MonitorId`（モニター固有の ID）と `MonitorRect`（位置と大きさ）は、モニターの番号が振り直されても同じモニターを探すためのもので、自動で書かれます |
@@ -177,7 +177,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ## English
 
-DeskMeter is a Rainmeter-style always-on-desktop resource monitor for Windows 10 / 11: a single `DeskMeter.exe` with no installer and no extra runtime (it uses the .NET Framework 4.8 that ships with Windows). It shows CPU (per core, per process), memory, GPU (NVIDIA via `nvidia-smi`; other GPUs via Windows counters), network, drives, clock, calendar with Japanese holidays, and weather (Open-Meteo). It can sit behind other windows or stay on top, comes with 12 skins plus JSON custom skins, supports detached panels on other monitors, and pauses sampling while hidden, locked, the display is off, or a fullscreen app covers it. The UI and documentation are in Japanese. Download the zip from [Releases](../../releases), extract it, and run `DeskMeter.exe`; settings live in `settings.json` next to the exe. Build from source with `build.ps1` (uses the C# compiler bundled with Windows).
+DeskMeter is a Rainmeter-style always-on-desktop resource monitor for Windows 10 / 11: a single `DeskMeter.exe` with no installer and no extra runtime (it uses the .NET Framework 4.8 that ships with Windows). It shows CPU (per core, per process), memory, GPU (NVIDIA via `nvidia-smi`; other GPUs via Windows counters), network, drives, clock, calendar with Japanese holidays, and weather (Open-Meteo). It can sit behind other windows or stay on top, comes with 15 skins plus JSON custom skins, supports detached panels on other monitors, and pauses sampling while hidden, locked, the display is off, or a fullscreen app covers it. The UI and documentation are in Japanese. Download the zip from [Releases](../../releases), extract it, and run `DeskMeter.exe`; settings live in `settings.json` next to the exe. Build from source with `build.ps1` (uses the C# compiler bundled with Windows).
 
 ## ライセンス
 

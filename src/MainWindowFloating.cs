@@ -137,6 +137,13 @@ namespace DeskMeter
 
         void ToggleVisible()
         {
+            if (!userHidden && hiddenByMax)
+            {
+                // 最大化中の自動非表示で見えていないときの「表示」は、隠す側ではなく自動非表示を解く
+                maxOverride = true;
+                SetAutoHidden(false);
+                return;
+            }
             userHidden = !userHidden;
             if (userHidden)
             {

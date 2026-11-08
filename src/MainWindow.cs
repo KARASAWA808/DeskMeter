@@ -891,7 +891,7 @@ namespace DeskMeter
             menu.Opening += delegate
             {
                 UpdateLayoutMenus();
-                miVisible.Text = userHidden ? "ウィジェットを表示" : "ウィジェットを隠す";   // 全パネルを切り離して本体だけ隠れているときも「隠す」
+                miVisible.Text = userHidden || hiddenByMax ? "ウィジェットを表示" : "ウィジェットを隠す";   // 全パネルを切り離して本体だけ隠れているときも「隠す」。最大化中の自動非表示中は「表示」
                 foreach (WF.ToolStripItem it in miPanels.DropDownItems)
                 {
                     var mi = it as WF.ToolStripMenuItem;
@@ -1024,12 +1024,27 @@ namespace DeskMeter
             return m;
         }
 
+        // 開いているダイアログ。トレイのメニューやホットキーから同じものを 2 枚開かない (後で閉じたほうが先の設定を上書きしてしまう)
+        Window openDialog;
+
+        bool DialogBusy()
+        {
+            if (openDialog == null) return false;
+            try { openDialog.Activate(); } catch { }
+            return true;
+        }
+
         void ShowNotesDialog()
         {
+            if (DialogBusy()) return;
             try
             {
                 var dlg = new NotesDialog(cfg);
-                if (dlg.ShowDialog() != true) return;
+                openDialog = dlg;
+                bool ok;
+                try { ok = dlg.ShowDialog() == true; }
+                finally { openDialog = null; }
+                if (!ok) return;
                 if (!cfg.HasPanel("notes")) cfg.TogglePanel("notes");   // 書いたのに出ないと分かりにくいので、パネルをオンにする
                 RelayoutAll();
                 cfg.Save();
@@ -1039,10 +1054,15 @@ namespace DeskMeter
 
         void ShowWorldClockDialog()
         {
+            if (DialogBusy()) return;
             try
             {
                 var dlg = new WorldClockDialog(cfg);
-                if (dlg.ShowDialog() != true) return;
+                openDialog = dlg;
+                bool ok;
+                try { ok = dlg.ShowDialog() == true; }
+                finally { openDialog = null; }
+                if (!ok) return;
                 RelayoutAll();
                 cfg.Save();
             }
@@ -1239,7 +1259,12 @@ namespace DeskMeter
                     while (true)
                     {
                         int i = WaitHandle.WaitAny(hs);
-                        if (i == 0) Dispatcher.BeginInvoke(new Action(delegate { if (userHidden) ToggleVisible(); else if (!hiddenByFloat) { Show(); ApplyMode(); } }));
+                        if (i == 0) Dispatcher.BeginInvoke(new Action(delegate
+                        {
+                            if (userHidden) ToggleVisible();
+                            else if (hiddenByMax) { maxOverride = true; SetAutoHidden(false); }   // 最大化中の自動非表示も解いて、切り離しパネルも出す
+                            else if (!hiddenByFloat) { Show(); ApplyMode(); }
+                        }));
                         else if (i == 1) Dispatcher.BeginInvoke(new Action(delegate { SetEditMode(!view.EditMode); }));
                         else if (i == 2) Dispatcher.BeginInvoke(new Action(ReloadSettings));
                         else break;
@@ -1488,8 +1513,13 @@ namespace DeskMeter
         {
             try
             {
+                if (DialogBusy()) return;
                 var dlg = new LocationDialog(cfg);
-                if (dlg.ShowDialog() != true) return;
+                openDialog = dlg;
+                bool ok;
+                try { ok = dlg.ShowDialog() == true; }
+                finally { openDialog = null; }
+                if (!ok) return;
                 cfg.Save();
                 sampler.RefreshWeatherNow();
                 InvalidateAll();
@@ -1631,6 +1661,9 @@ namespace DeskMeter
             floats.Clear();
             displayChangeTimer.Stop();
             fullscreenTimer.Stop();
+            trayClickTimer.Stop();
+            settingsChangedTimer.Stop();
+            MeterView.ImageFailed -= OnImageFailed;
             if (powerNotify != IntPtr.Zero) { Native.UnregisterPowerSettingNotification(powerNotify); powerNotify = IntPtr.Zero; }
             if (snapshotPath == null)
             {

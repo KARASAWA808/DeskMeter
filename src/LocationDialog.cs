@@ -298,6 +298,15 @@ namespace DeskMeter
 
         void Accept()
         {
+            if (disabled.IsChecked == true)
+            {
+                // 天気を取得しないなら座標は検証せず、今の値のまま
+                cfg.LocationName = nameBox.Text.Trim();
+                cfg.WeatherEnabled = false;
+                DialogResult = true;
+                Close();
+                return;
+            }
             double lat, lon;
             // 小数点のカンマ ("35,68") と全角数字も受け付ける
             string latText = NormalizeNumber(latBox.Text), lonText = NormalizeNumber(lonBox.Text);

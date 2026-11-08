@@ -322,6 +322,13 @@ namespace DeskMeter
                 s.BarStyle = Choice(ctx, "BarStyle", f.BarStyle, BarStyles, s.BarStyle);
                 if (f.GraphArea.HasValue) s.GraphArea = f.GraphArea.Value;
                 if (f.Sharp.HasValue) s.Sharp = f.Sharp.Value;
+                if (s.Sharp)
+                {
+                    // 角なしなら、書いていない角丸は 0 に (書いてあればその値)
+                    if (!f.CornerRadius.HasValue) s.CornerRadius = 0;
+                    if (!f.TileRadius.HasValue) s.TileRadius = 0;
+                    if (!f.CardRadius.HasValue) s.CardRadius = 0;
+                }
                 s.Decor = Choice(ctx, "Decor", f.Decor, Decors, s.Decor);
                 s.DecorColor = ctx.Color("DecorColor", f.DecorColor, s.DecorColor);
                 s.Mascot = Choice(ctx, "Mascot", f.Mascot, Mascots, s.Mascot);

@@ -13,8 +13,10 @@ namespace DeskMeter
     {
         public static void Export(Settings cfg, string zipPath)
         {
-            if (File.Exists(zipPath)) File.Delete(zipPath);
-            using (ZipArchive zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+            // 一時ファイルに作ってから置き換える (途中で失敗しても元の zip を失わない)
+            string tmp = zipPath + ".tmp";
+            if (File.Exists(tmp)) File.Delete(tmp);
+            using (ZipArchive zip = ZipFile.Open(tmp, ZipArchiveMode.Create))
             {
                 // settings.json は今の設定を複製して、画像のパスを zip 内の相対パスにしてから入れる
                 var ser = new JavaScriptSerializer();
@@ -29,6 +31,8 @@ namespace DeskMeter
                 AddDir(zip, Path.Combine(Settings.ThemeDir, "images"), "themes/images", "*.*");
                 AddDir(zip, Skin.SkinDir, "skins", "*.json");
             }
+            if (File.Exists(zipPath)) File.Delete(zipPath);
+            File.Move(tmp, zipPath);
         }
 
         // 読み込み。今の settings.json は settings.backup-日時.json に退避する。戻り値は取り込んだ内容の説明
@@ -36,7 +40,7 @@ namespace DeskMeter
         {
             string dataDir = AppPaths.DataDir;
             Directory.CreateDirectory(dataDir);
-            int themes = 0, skins = 0, images = 0;
+            int themes = 0, skins = 0, images = 0, skippedSkins = 0;
             bool settings = false;
             using (ZipArchive zip = ZipFile.OpenRead(zipPath))
             {
@@ -49,19 +53,28 @@ namespace DeskMeter
                     {
                         if (File.Exists(Settings.FilePath))
                             File.Copy(Settings.FilePath, Path.Combine(dataDir, "settings.backup-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json"), true);
-                        dest = Settings.FilePath; settings = true;
+                        dest = Settings.FilePath;
                     }
-                    else if (name.StartsWith("themes/images/")) { dest = Path.Combine(Settings.ThemeDir, "images", Path.GetFileName(name)); images++; }
-                    else if (name.StartsWith("themes/") && name.EndsWith(".json")) { dest = Path.Combine(Settings.ThemeDir, Path.GetFileName(name)); themes++; }
+                    else if (name.StartsWith("themes/images/")) dest = Path.Combine(Settings.ThemeDir, "images", Path.GetFileName(name));
+                    else if (name.StartsWith("themes/") && name.EndsWith(".json")) dest = Path.Combine(Settings.ThemeDir, Path.GetFileName(name));
                     else if (name.StartsWith("skins/") && name.EndsWith(".json"))
                     {
-                        if (AppPaths.Redirected) { Log.Write("import " + name, new InvalidOperationException("exe のフォルダーに書き込めないのでスキンは取り込みません")); continue; }
-                        dest = Path.Combine(Skin.SkinDir, Path.GetFileName(name)); skins++;
+                        if (AppPaths.Redirected) { skippedSkins++; continue; }   // exe のフォルダーに書けない
+                        dest = Path.Combine(Skin.SkinDir, Path.GetFileName(name));
                     }
-                    else if (name.StartsWith("images/")) { dest = Path.Combine(dataDir, "images", Path.GetFileName(name)); images++; }
+                    else if (name.StartsWith("images/")) dest = Path.Combine(dataDir, "images", Path.GetFileName(name));
                     else continue;
-                    try { Directory.CreateDirectory(Path.GetDirectoryName(dest)); e.ExtractToFile(dest, true); }
-                    catch (Exception ex) { Log.Write("import " + name, ex); if (name.StartsWith("skins/")) skins--; }
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                        e.ExtractToFile(dest, true);
+                        // 展開できたものだけ数える
+                        if (name == "settings.json") settings = true;
+                        else if (name.StartsWith("themes/images/") || name.StartsWith("images/")) images++;
+                        else if (name.StartsWith("themes/")) themes++;
+                        else skins++;
+                    }
+                    catch (Exception ex) { Log.Write("import " + name, ex); }
                 }
             }
             // 画像の相対パス (images\...) は exe のフォルダー基準で解決されるので、保存先が別のときは絶対パスに直す
@@ -84,7 +97,8 @@ namespace DeskMeter
                 }
                 catch (Exception ex) { Log.Write("import paths", ex); }
             }
-            return (settings ? "設定" : "(設定なし)") + "、テーマ " + themes + "、スキン " + skins + "、画像 " + images;
+            return (settings ? "設定" : "(設定なし)") + "、テーマ " + themes + "、スキン " + skins + "、画像 " + images
+                + (skippedSkins > 0 ? " (スキン " + skippedSkins + " 件は exe のフォルダーに書き込めないため省略)" : "");
         }
 
         // 画像を zip の images\ に入れ、設定に書く相対パスを返す (無い・空ならそのまま)
