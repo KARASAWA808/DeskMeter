@@ -41,6 +41,7 @@ namespace DeskMeter
         public Brush CardBrush;          // パネルごとのカード背景 (null なら無し)
         public Pen CardBorder;
         public double CardRadius = 12;
+        public bool Sharp;               // 角丸を一切使わない (バー・日付タイル・配置編集の枠も直角)
 
         public static Color Hex(string s) { return (Color)ColorConverter.ConvertFromString(s); }
 
@@ -75,7 +76,7 @@ namespace DeskMeter
             return r;
         }
 
-        public static readonly string[] BuiltIn = { "Classic", "Cyberpunk", "Retro", "Light", "KawaiiPink", "KawaiiMint", "Synthwave", "Matrix", "Nord", "Dracula", "Frost", "Notebook" };
+        public static readonly string[] BuiltIn = { "Classic", "ClassicSharp", "Cyberpunk", "Retro", "Light", "KawaiiPink", "KawaiiMint", "Synthwave", "Matrix", "Nord", "Dracula", "Frost", "Notebook" };
 
         // 組み込み + skins フォルダーのスキン名 (呼ぶたびにフォルダーを見直す)
         public static string[] Names
@@ -128,6 +129,7 @@ namespace DeskMeter
             switch (name)
             {
                 case "Classic": return "Classic";
+                case "ClassicSharp": return "Classic Sharp (角なし)";
                 case "Cyberpunk": return "Cyberpunk (ネオン)";
                 case "Retro": return "Retro (アンバーCRT)";
                 case "Light": return "Light (明るい壁紙向け)";
@@ -151,6 +153,7 @@ namespace DeskMeter
                 case "Retro": return Retro();
                 case "Light": return Light();
                 case "Classic": return Classic();
+                case "ClassicSharp": return ClassicSharp();
                 case "KawaiiPink": return KawaiiPink();
                 case "KawaiiMint": return KawaiiMint();
                 case "Synthwave": return Synthwave();
@@ -203,6 +206,7 @@ namespace DeskMeter
             public string Card;                 // パネルごとのカード背景色 (#AARRGGBB 可)
             public string CardBorder;
             public double? CardRadius;
+            public bool? Sharp;                 // true で角丸を一切使わない
         }
 
         // 壊れた JSON は deskmeter.log に書いて null を返す。色の書き間違いは項目ごとに Classic の値で代用する
@@ -313,6 +317,7 @@ namespace DeskMeter
                 if (f.TileRadius.HasValue) s.TileRadius = Math.Max(0, Math.Min(18, f.TileRadius.Value));
                 s.BarStyle = Choice(ctx, "BarStyle", f.BarStyle, BarStyles, s.BarStyle);
                 if (f.GraphArea.HasValue) s.GraphArea = f.GraphArea.Value;
+                if (f.Sharp.HasValue) s.Sharp = f.Sharp.Value;
                 s.Decor = Choice(ctx, "Decor", f.Decor, Decors, s.Decor);
                 s.DecorColor = ctx.Color("DecorColor", f.DecorColor, s.DecorColor);
                 s.Mascot = Choice(ctx, "Mascot", f.Mascot, Mascots, s.Mascot);
@@ -403,6 +408,19 @@ namespace DeskMeter
             s.Palette = Brushes("#7ED957", "#F2E205", "#FF9F1A", "#F0505A", "#E06BE0", "#A98BFF", "#4C8DFF",
                 "#38C6E8", "#B5E61D", "#D6E000", "#FFC300", "#E0705A", "#C77DFF", "#5CE0C0");
             s.Tiles = Brushes("#3F9B2F", "#1F6FD0", "#12827A", "#56627A", "#7A4FC0", "#B8456B");
+            return s;
+        }
+
+        // Classic の色のまま、角丸を全部なくしたもの (窓・見出しアイコン・バー・日付タイル)
+        public static Skin ClassicSharp()
+        {
+            Skin s = Classic();
+            s.Name = "ClassicSharp";
+            s.CornerRadius = 0;
+            s.TileRadius = 0;
+            s.CardRadius = 0;
+            s.BarStyle = "flat";
+            s.Sharp = true;
             return s;
         }
 

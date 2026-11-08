@@ -30,7 +30,7 @@
 <p class="meta">DeskMeter ヘルプ · 2026-11-08</p>
 
 <h2>概要</h2>
-<p>DeskMeter.exe と同じフォルダーの <code>skins</code> フォルダーに JSON ファイルを置くと、それがスキンになります。ファイル名 (拡張子を除いたもの) がそのままスキン名で、右クリックメニューの「スキン」で、組み込みの 12 種の下に区切り線を挟んで並びます。メニューを開くたびにフォルダーを見直すので、ファイルを足したり消したりしても再起動は要りません。</p>
+<p>DeskMeter.exe と同じフォルダーの <code>skins</code> フォルダーに JSON ファイルを置くと、それがスキンになります。ファイル名 (拡張子を除いたもの) がそのままスキン名で、右クリックメニューの「スキン」で、組み込みの 13 種の下に区切り線を挟んで並びます。メニューを開くたびにフォルダーを見直すので、ファイルを足したり消したりしても再起動は要りません。</p>
 <ul>
   <li>置き場所: DeskMeter.exe と同じフォルダーの <code>skins\</code> (無ければ作ってください)</li>
   <li>雛形: <code>skins\example-ocean.json</code> (青緑系)。これをコピーして別名にし、色を書き換えるのが近道です。</li>
@@ -168,6 +168,7 @@
   <tr><td><code>GraphArea</code></td><td>true / false</td><td>グラフの折れ線の下を薄く塗る</td></tr>
   <tr><td><code>Decor</code></td><td>"sakura" / "hearts" / "stars" / "bubbles" / "dots" / "grid" / "rain" / "lines"</td><td>背景の飾り: 桜の花びら / ハート / きらきら / 泡 / 水玉 / 夕焼けの遠近グリッド / 緑の文字の雨 / ノートの罫線</td></tr>
   <tr><td><code>DecorColor</code></td><td>色</td><td>飾りの色 (透明度は自動で付く)</td></tr>
+  <tr><td><code>Sharp</code></td><td>true / false</td><td>true で角丸を一切使わない (バー・日付タイル・配置編集の枠も直角)。<code>CornerRadius</code> / <code>TileRadius</code> / <code>CardRadius</code> を 0 にするのと合わせて使う。組み込みの Classic Sharp がこの設定</td></tr>
   <tr><td><code>Mascot</code></td><td>"cat" / "bunny" / "bear"</td><td>いちばん空いている列の下に描くキャラクター。空きが 64px 未満なら描かない</td></tr>
   <tr><td><code>MascotBody</code> / <code>MascotAccent</code> / <code>MascotEye</code></td><td>色</td><td>キャラクターの体 / 耳の内側・ほっぺ / 目の色</td></tr>
 </table>

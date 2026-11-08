@@ -24,7 +24,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 
 ## 見た目のカスタマイズ
 
-- **スキン** 12 種（Classic / Cyberpunk / Retro / Light / Kawaii Pink / Kawaii Mint / Synthwave / Matrix / Nord / Dracula / Frost / Notebook）。`skins\*.json` で自作もできます（`help\custom-skin.html`）。
+- **スキン** 13 種（Classic / Classic Sharp（角丸なし）/ Cyberpunk / Retro / Light / Kawaii Pink / Kawaii Mint / Synthwave / Matrix / Nord / Dracula / Frost / Notebook）。`skins\*.json` で自作もできます（`help\custom-skin.html`）。
 - **配置の編集**: 右クリック →「配置の編集」でパネルをドラッグして並べ替え。列は最大 6 つ。画面に収まらない移動は元に戻され、「配置を元に戻す」で直前の移動を取り消せます。
 - **パネルの切り離し**: パネルごとに独立ウィンドウにして、別モニターにも置けます。
 - **配置プリセット** と **テーマ**（スキン・配置・画像などの一式を保存・切替）。

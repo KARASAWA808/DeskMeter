@@ -362,9 +362,9 @@ namespace DeskMeter
             foreach (PanelBox b in boxes)
             {
                 Rect r = new Rect(b.R.X - 4, b.R.Y - 4, b.R.Width + 8, b.R.Height + 8);
-                dc.DrawRoundedRectangle(b.Id == dragId ? dragFill : fill, outline, r, 4, 4);
+                dc.DrawRoundedRectangle(b.Id == dragId ? dragFill : fill, outline, r, R(4), R(4));
                 FormattedText label = Make(Settings.PanelName(b.Id), 11.5, sk.Title, TfB);
-                dc.DrawRoundedRectangle(sk.Text2, null, new Rect(r.X, r.Y, label.Width + 12, 18), 3, 3);
+                dc.DrawRoundedRectangle(sk.Text2, null, new Rect(r.X, r.Y, label.Width + 12, 18), R(3), R(3));
                 dc.DrawText(Make(Settings.PanelName(b.Id), 11.5, sk.Background.A == 0 ? sk.Title : Brushes.Black, TfB), new Point(r.X + 6, r.Y + 1));
             }
             if (dragging && dragId != null)
@@ -410,7 +410,7 @@ namespace DeskMeter
                 // ドラッグ中のパネル名をカーソルに追従させる
                 FormattedText ghost = Make(Settings.PanelName(dragId), 13, Brushes.Black, TfB);
                 var gr = new Rect(dragPos.X + 14, dragPos.Y + 10, ghost.Width + 14, 22);
-                dc.DrawRoundedRectangle(sk.Accent1, null, gr, 4, 4);
+                dc.DrawRoundedRectangle(sk.Accent1, null, gr, R(4), R(4));
                 dc.DrawText(ghost, new Point(gr.X + 7, gr.Y + 2));
             }
             CheckPendingDrop();
@@ -432,7 +432,7 @@ namespace DeskMeter
                         if (b.R.Bottom > limit)
                         {
                             over = true;
-                            dc.DrawRoundedRectangle(null, overPen, new Rect(b.R.X - 4, b.R.Y - 4, b.R.Width + 8, b.R.Height + 8), 4, 4);
+                            dc.DrawRoundedRectangle(null, overPen, new Rect(b.R.X - 4, b.R.Y - 4, b.R.Width + 8, b.R.Height + 8), R(4), R(4));
                         }
                 }
             }
@@ -447,7 +447,7 @@ namespace DeskMeter
             var hr = new Rect((contentW - Math.Min(ht.Width, contentW - 24)) / 2 - 8, contentH - ht.Height - 12, Math.Min(ht.Width, contentW - 24) + 16, ht.Height + 8);
             var hb = new SolidColorBrush(Color.FromArgb(220, 30, 30, 36));
             hb.Freeze();
-            dc.DrawRoundedRectangle(hb, null, hr, 5, 5);
+            dc.DrawRoundedRectangle(hb, null, hr, R(5), R(5));
             dc.DrawText(ht, new Point(hr.X + 8, hr.Y + 4));
         }
 
@@ -617,9 +617,12 @@ namespace DeskMeter
             return w;
         }
 
+        // 角丸の半径。角なしのスキンでは 0
+        double R(double r) { return sk.Sharp ? 0 : r; }
+
         void Bar(DrawingContext dc, double x, double y, double w, double h, double frac, Brush fill)
         {
-            double rad = sk.BarStyle == "pill" ? h / 2 : 2;
+            double rad = sk.Sharp ? 0 : sk.BarStyle == "pill" ? h / 2 : 2;
             dc.DrawRoundedRectangle(Track, null, new Rect(x, y, w, h), rad, rad);
             if (double.IsNaN(frac)) return;
             frac = Math.Max(0, Math.Min(1, frac));
@@ -1265,7 +1268,7 @@ namespace DeskMeter
         {
             DateTime today = DateTime.Today;
             const double th = 158;
-            dc.DrawRoundedRectangle(TileGradient, null, new Rect(x, y, ColW, th), 4, 4);
+            dc.DrawRoundedRectangle(TileGradient, null, new Rect(x, y, ColW, th), R(4), R(4));
             T(dc, today.ToString("dddd", Ja), x + ColW / 2, y + 8, 17, sk.DateTileText, 2);
             FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfL);
             dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, y + 18));
