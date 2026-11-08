@@ -181,7 +181,7 @@ namespace DeskMeter
         long procStamp;
 
         int pingBusy, weatherBusy, drivesBusy;
-        DateTime weatherNext = DateTime.MinValue;
+        long weatherNext;   // 次に天気を取りに行く時刻 (GetTickCount64。時計合わせで戻されても遅れない)
         int histSeconds = -1, histInterval = -1;   // 履歴の容量を決めたときの設定値
 
         public Sampler(Settings cfg) { this.cfg = cfg; }
@@ -228,7 +228,7 @@ namespace DeskMeter
             procStamp = 0;
             nicsDirty = true;
             // 天気は眠っていた分だけ古いので、落ち着いたころに取り直す
-            weatherNext = DateTime.Now.AddSeconds(20);
+            weatherNext = Tick() + 20000;
             Poke();
         }
 
@@ -246,7 +246,7 @@ namespace DeskMeter
         public void RefreshWeatherNow()
         {
             lock (S) { S.Weather = null; S.WeatherError = null; }
-            weatherNext = DateTime.MinValue;
+            weatherNext = 0;
         }
 
         // ---------------------------------------------------------------- main loop
@@ -295,7 +295,7 @@ namespace DeskMeter
                     if (t0 >= nextDrives) { StartDrives(); nextDrives = t0 + Math.Max(30000, interval); }   // 容量は分単位でしか変わらない
                     if (t0 >= nextPing) { StartPing(); nextPing = t0 + Math.Max(5000, interval); }
                     if (t0 >= nextHw) { Safe("hwinfo", SampleHwInfo); nextHw = t0 + 5000; }
-                    if (cfg.WeatherEnabled && DateTime.Now >= weatherNext) StartWeather();
+                    if (cfg.WeatherEnabled && t0 >= weatherNext) StartWeather();
                     if (Profiler.Enabled) Profiler.Sample(Stopwatch.GetTimestamp() - pst);
                     Action h = Sampled;
                     if (h != null) h();
@@ -1139,7 +1139,7 @@ namespace DeskMeter
         void StartWeather()
         {
             if (Interlocked.CompareExchange(ref weatherBusy, 1, 0) != 0) return;
-            weatherNext = DateTime.Now.AddMinutes(15);
+            weatherNext = Tick() + 15 * 60000;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
@@ -1150,10 +1150,27 @@ namespace DeskMeter
                 catch (Exception ex)
                 {
                     lock (S) S.WeatherError = ex.Message;
-                    weatherNext = DateTime.Now.AddMinutes(2);
+                    weatherNext = Tick() + 2 * 60000;
                 }
                 Interlocked.Exchange(ref weatherBusy, 0);
             });
+        }
+
+        static string ReadErrorReason(WebException wex)
+        {
+            try
+            {
+                if (wex.Response == null) return null;
+                string body;
+                using (WebResponse resp = wex.Response)
+                using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    body = sr.ReadToEnd();
+                var d = new JavaScriptSerializer().DeserializeObject(body) as Dictionary<string, object>;
+                object reason;
+                if (d != null && d.TryGetValue("reason", out reason) && reason != null) return Convert.ToString(reason);
+            }
+            catch { }
+            return null;
         }
 
         Weather FetchWeather()
@@ -1171,11 +1188,22 @@ namespace DeskMeter
             req.AutomaticDecompression = DecompressionMethods.GZip;   // deflate は zlib 形式で返るサーバーがあり .NET では展開できない
             req.UserAgent = "DeskMeter/1.0";
             string json;
-            using (WebResponse resp = req.GetResponse())
-            using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
-                json = sr.ReadToEnd();
+            try
+            {
+                using (WebResponse resp = req.GetResponse())
+                using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    json = sr.ReadToEnd();
+            }
+            catch (WebException wex)
+            {
+                // 400 などでも本文に {"error":true,"reason":"..."} が入っている。理由が分かればそれを出す (緯度・経度の間違いなど)
+                string reason = ReadErrorReason(wex);
+                if (reason != null) throw new InvalidOperationException(reason);
+                throw;
+            }
 
-            var root = (Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json);
+            var root = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
+            if (root == null) throw new InvalidOperationException("応答が JSON ではありません");
             // Open-Meteo はエラー時に {"error":true,"reason":"..."} を返す
             object err;
             if (root.TryGetValue("error", out err) && err is bool && (bool)err)
@@ -1184,8 +1212,12 @@ namespace DeskMeter
                 string msg = root.TryGetValue("reason", out reason) && reason != null ? Convert.ToString(reason) : "Open-Meteo error";
                 throw new InvalidOperationException(msg);
             }
-            var cur = (Dictionary<string, object>)root["current"];
-            var daily = (Dictionary<string, object>)root["daily"];
+            object curObj, dailyObj;
+            root.TryGetValue("current", out curObj);
+            root.TryGetValue("daily", out dailyObj);
+            var cur = curObj as Dictionary<string, object>;
+            var daily = dailyObj as Dictionary<string, object>;
+            if (cur == null || daily == null) throw new InvalidOperationException("応答に current / daily がありません");
 
             var w = new Weather();
             w.Temp = D(Get(cur, "temperature_2m"));

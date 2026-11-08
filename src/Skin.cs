@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows;
@@ -265,7 +266,7 @@ namespace DeskMeter
                 if (raw != null)
                 {
                     foreach (string key in raw.Keys)
-                        if (!key.StartsWith("_") && typeof(SkinFile).GetField(key) == null) ctx.Warn(key, "知らないキーです (綴りを確認してください)");   // "_comment" などメモ用のキーは許す
+                        if (!key.StartsWith("_") && typeof(SkinFile).GetField(key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase) == null) ctx.Warn(key, "知らないキーです (綴りを確認してください)");   // 大文字小文字の違いは読み込みと同じく許す   // "_comment" などメモ用のキーは許す
                 }
                 if (!string.IsNullOrWhiteSpace(f.FontFamily))
                 {

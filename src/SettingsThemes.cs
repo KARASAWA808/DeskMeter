@@ -13,6 +13,7 @@ namespace DeskMeter
         {
             public string Id;
             public string Monitor;
+            public string Rect;   // モニターの位置と大きさ (番号が振り直されたときの照合用)
             public int X, Y;
         }
 
@@ -241,7 +242,7 @@ namespace DeskMeter
                 // テーマのフォルダーごと別の PC に持っていっても表示できるようにする
                 t.BackgroundImage = PortableImagePath(BackgroundImage);
                 t.MascotImage = PortableImagePath(MascotImage);
-                File.WriteAllText(path, Pretty(new JavaScriptSerializer().Serialize(t)), new UTF8Encoding(false));
+                WriteAtomic(path, Pretty(new JavaScriptSerializer().Serialize(t)));   // 上書き保存の途中で落ちても元のテーマが壊れない
                 return true;
             }
             catch (Exception ex) { Log.Write("theme save " + name, ex); return false; }
@@ -259,10 +260,30 @@ namespace DeskMeter
                 string imgDir = Path.Combine(ThemeDir, "images");
                 Directory.CreateDirectory(imgDir);
                 string dest = Path.Combine(imgDir, Path.GetFileName(full));
-                if (!File.Exists(dest) || new FileInfo(dest).Length != new FileInfo(full).Length) File.Copy(full, dest, true);
-                return Path.Combine("themes", "images", Path.GetFileName(full));
+                if (File.Exists(dest) && !SameFile(dest, full))
+                {
+                    // 同じ名前の別の画像が既にある (別のテーマが使っている) ので、名前に中身のハッシュを足して別に置く
+                    dest = Path.Combine(imgDir, Path.GetFileNameWithoutExtension(full) + "-" + FileHash8(full) + Path.GetExtension(full));
+                }
+                if (!File.Exists(dest) || !SameFile(dest, full)) File.Copy(full, dest, true);
+                return Path.Combine("themes", "images", Path.GetFileName(dest));
             }
             catch (Exception ex) { Log.Write("theme image " + setting, ex); return setting; }
+        }
+
+        static bool SameFile(string a, string b)
+        {
+            var fa = new FileInfo(a); var fb = new FileInfo(b);
+            if (fa.Length != fb.Length) return false;
+            if (fa.LastWriteTimeUtc == fb.LastWriteTimeUtc) return true;
+            return FileHash8(a) == FileHash8(b);
+        }
+
+        static string FileHash8(string path)
+        {
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            using (FileStream fs = File.OpenRead(path))
+                return BitConverter.ToString(sha.ComputeHash(fs), 0, 4).Replace("-", "").ToLowerInvariant();
         }
 
         public static ThemeFile LoadTheme(string name)

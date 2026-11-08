@@ -15,6 +15,7 @@ namespace DeskMeter
         public readonly string Id;
         public readonly MeterView View;
         public IntPtr Hwnd;
+        bool dragging;
 
         public PanelWindow(MainWindow owner, Settings cfg, MeterState state, string id)
         {
@@ -42,9 +43,13 @@ namespace DeskMeter
             MouseLeftButtonDown += delegate
             {
                 if (cfg.Locked) return;
+                dragging = true;
                 try { DragMove(); } catch { }
+                dragging = false;
                 SavePosition();
             };
+            // 行が増えて大きくなったとき (ドライブの追加、GPU の行、倍率の変更) も画面内に収める
+            SizeChanged += delegate { if (!dragging) RestorePosition(); };
             MouseRightButtonUp += delegate { owner.ShowMenuFor(Id); };
             MouseDoubleClick += delegate { owner.OpenPanelTarget(Id); };
         }
@@ -54,7 +59,7 @@ namespace DeskMeter
             base.OnSourceInitialized(e);
             Hwnd = new WindowInteropHelper(this).Handle;
             long ex = Native.GetWindowLongPtr(Hwnd, Native.GWL_EXSTYLE).ToInt64();
-            Native.SetWindowLongPtr(Hwnd, Native.GWL_EXSTYLE, new IntPtr(ex | Native.WS_EX_TOOLWINDOW));
+            Native.SetWindowLongPtr(Hwnd, Native.GWL_EXSTYLE, new IntPtr(ex | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE));
             HwndSource.FromHwnd(Hwnd).AddHook(WndProc);
             RestorePosition();
             ApplyMode();
@@ -63,6 +68,11 @@ namespace DeskMeter
 
         IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (msg == Native.WM_MOUSEACTIVATE)
+            {
+                handled = true;   // クリックで活性化しない (本体と同じ)
+                return new IntPtr(Native.MA_NOACTIVATE);
+            }
             if (msg == Native.WM_WINDOWPOSCHANGING && cfg.Mode == "desktop" && !owner.ShowDesktop)
             {
                 var wp = (Native.WINDOWPOS)Marshal.PtrToStructure(lParam, typeof(Native.WINDOWPOS));
@@ -107,11 +117,11 @@ namespace DeskMeter
             try
             {
                 Settings.FloatPos p = cfg.EnsureFloatPos(Id);
-                WF.Screen scr = MainWindow.FindScreen(p.Monitor);
+                WF.Screen scr = MainWindow.FindScreen(p.Monitor, p.Rect);
                 System.Drawing.Rectangle wa = scr.WorkingArea;
-                Native.RECT r;
-                Native.GetWindowRect(Hwnd, out r);
-                int w = Math.Max(1, r.Right - r.Left), h = Math.Max(1, r.Bottom - r.Top);
+                // 大きさは WPF のレイアウト結果から (SizeChanged の時点では HWND の大きさがまだ古い)
+                double scale = Native.DpiScale(scr.Bounds);
+                int w = Math.Max(1, (int)Math.Round(ActualWidth * scale)), h = Math.Max(1, (int)Math.Round(ActualHeight * scale));
                 int x = MainWindow.ClampToArea(wa.Left + p.X, w, wa.Left, wa.Right);
                 int y = MainWindow.ClampToArea(wa.Top + p.Y, h, wa.Top, wa.Bottom);
                 Native.SetWindowPos(Hwnd, IntPtr.Zero, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
@@ -129,6 +139,7 @@ namespace DeskMeter
                 WF.Screen scr = WF.Screen.FromHandle(Hwnd);
                 Settings.FloatPos p = cfg.EnsureFloatPos(Id);
                 p.Monitor = scr.DeviceName;
+                p.Rect = MainWindow.RectKey(scr);
                 p.X = r.Left - scr.WorkingArea.Left;
                 p.Y = r.Top - scr.WorkingArea.Top;
                 cfg.Save();

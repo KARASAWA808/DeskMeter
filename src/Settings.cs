@@ -11,6 +11,7 @@ namespace DeskMeter
     {
         // ウィンドウ位置: どのモニターの、どの端から何ピクセルか (モニター構成が変わっても追従できる)
         public string Monitor;            // 例 "\\.\DISPLAY1"。無い/見つからないときはメインモニター
+        public string MonitorRect;        // そのモニターの位置と大きさ "左,上,幅,高さ"。番号が振り直されたときの照合用
         public string AnchorH = "right";  // "left" / "right"
         public string AnchorV = "top";    // "top" / "bottom"
         public int MonX = 8;              // 基準の端からの距離 (ピクセル)
@@ -124,6 +125,7 @@ namespace DeskMeter
                 var ser = new JavaScriptSerializer();
                 var dict = ser.DeserializeObject(json) as Dictionary<string, object>;
                 if (dict == null) { broken = true; return null; }
+                lastFileDict = dict;
                 var s = new Settings();
                 foreach (FieldInfo f in typeof(Settings).GetFields(BindingFlags.Public | BindingFlags.Instance))
                 {
@@ -295,19 +297,73 @@ namespace DeskMeter
             return true;
         }
 
+        // 最後に読んだ / 書いたときのファイルの中身 (項目ごと)。手編集との突き合わせに使う
+        static Dictionary<string, object> lastFileDict;
+        static bool mergedExternal;
+
+        // 直前の Save で手編集を取り込んだか (一度読むと消える)。取り込んだ後はファイルを読み直して画面にも反映する
+        public static bool TakeMergedExternal()
+        {
+            bool m = mergedExternal;
+            mergedExternal = false;
+            return m;
+        }
+
         // 一時ファイルに書いてから差し替える (書き込み途中で落ちても settings.json が途中切れにならない)
         public void Save()
         {
             try
             {
-                string json = Pretty(new JavaScriptSerializer().Serialize(this));
-                string tmp = FilePath + ".tmp";
-                File.WriteAllText(tmp, json, new UTF8Encoding(false));
-                if (File.Exists(FilePath)) File.Replace(tmp, FilePath, null);
-                else File.Move(tmp, FilePath);
+                var ser = new JavaScriptSerializer();
+                if (ExternallyModified()) MergeExternal(ser);
+                string json = Pretty(ser.Serialize(this));
+                WriteAtomic(FilePath, json);
+                try { lastFileDict = ser.DeserializeObject(json) as Dictionary<string, object>; } catch { }
                 RememberStamp();
             }
             catch (Exception ex) { Log.Write("Settings.Save", ex); }
+        }
+
+        // メモ帳などで保存した直後 (再読み込みの前) にメニューを操作したとき、手編集を上書きして消さないよう、
+        // ファイルで変わった項目だけを取り込んでから書く
+        void MergeExternal(JavaScriptSerializer ser)
+        {
+            try
+            {
+                if (!File.Exists(FilePath)) return;
+                var ext = ser.DeserializeObject(File.ReadAllText(FilePath, Encoding.UTF8)) as Dictionary<string, object>;
+                if (ext == null) return;   // 壊れている: 再読み込みの側で知らせる
+                var last = lastFileDict ?? new Dictionary<string, object>();
+                int merged = 0;
+                foreach (FieldInfo f in typeof(Settings).GetFields(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (f.IsDefined(typeof(ScriptIgnoreAttribute), false)) continue;
+                    object v, old;
+                    if (!ext.TryGetValue(f.Name, out v)) continue;
+                    if (last.TryGetValue(f.Name, out old) && ser.Serialize(old) == ser.Serialize(v)) continue;   // 手編集で変わっていない
+                    try { f.SetValue(this, ser.ConvertToType(v, f.FieldType)); merged++; }
+                    catch (Exception ex) { Log.Write("Settings." + f.Name + " (手編集の値が読めないので今の値のまま)", ex); }
+                }
+                if (merged == 0) return;
+                Normalize();
+                mergedExternal = true;
+            }
+            catch (Exception ex) { Log.Write("Settings.MergeExternal", ex); }
+        }
+
+        // 一時ファイルに書いてから差し替える。差し替えが拒まれたとき (ウイルス対策や共有フォルダー) は少し待って、それでもだめなら上書きコピー
+        internal static void WriteAtomic(string path, string text)
+        {
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text, new UTF8Encoding(false));
+            if (!File.Exists(path)) { File.Move(tmp, path); return; }
+            try { File.Replace(tmp, path, null); return; }
+            catch (IOException) { }
+            System.Threading.Thread.Sleep(100);
+            try { File.Replace(tmp, path, null); return; }
+            catch (IOException) { }
+            File.Copy(tmp, path, true);
+            File.Delete(tmp);
         }
 
         static string Pretty(string json)

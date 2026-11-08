@@ -2,6 +2,7 @@
 #   uitest.ps1 capture "p=out.png"
 #   uitest.ps1 drag "p=x1,y1,x2,y2[,hold]"
 #   uitest.ps1 release
+#   uitest.ps1 rclick "p=x,y"
 #   uitest.ps1 rect
 param([string]$cmd, [string]$argstr)
 $ErrorActionPreference = 'Stop'
@@ -43,5 +44,6 @@ switch ($cmd) {
     if ($hold) { "holding" } else { [void][UI]::Mouse(0x0004); "dragged" }   # left up
   }
   'release' { [void][UI]::Mouse(0x0004); "released" }
+  'rclick' { [UI]::MoveTo([int]$p[0], [int]$p[1]); Start-Sleep -Milliseconds 100; [void][UI]::Mouse(0x0008); Start-Sleep -Milliseconds 60; [void][UI]::Mouse(0x0010); "right-clicked" }   # 右クリック (メニューを開く)
   default { "unknown command" }
 }

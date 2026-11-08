@@ -245,13 +245,27 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- window placement (per monitor)
 
-        internal static WF.Screen FindScreen(string device)
+        internal static WF.Screen FindScreen(string device) { return FindScreen(device, null); }
+
+        // モニターを名前 (\\.\DISPLAYn) と、位置・大きさの両方で探す。ドックの抜き差しやドライバー更新で番号が振り直されても、
+        // 同じ位置・大きさのモニターがあればそちらを選ぶ。解像度を変えただけなら名前で見つかる
+        internal static WF.Screen FindScreen(string device, string rect)
         {
             WF.Screen[] all = WF.Screen.AllScreens;
-            if (device != null)
-                foreach (WF.Screen s in all)
-                    if (string.Equals(s.DeviceName, device, StringComparison.OrdinalIgnoreCase)) return s;
-            return WF.Screen.PrimaryScreen ?? all[0];
+            WF.Screen byName = null, byRect = null;
+            foreach (WF.Screen s in all)
+            {
+                if (byName == null && device != null && string.Equals(s.DeviceName, device, StringComparison.OrdinalIgnoreCase)) byName = s;
+                if (byRect == null && rect != null && RectKey(s) == rect) byRect = s;
+            }
+            if (byName != null && byRect != null && byName != byRect) return byRect;   // 番号が入れ替わった
+            return byName ?? byRect ?? WF.Screen.PrimaryScreen ?? all[0];
+        }
+
+        internal static string RectKey(WF.Screen s)
+        {
+            System.Drawing.Rectangle b = s.Bounds;
+            return b.Left + "," + b.Top + "," + b.Width + "," + b.Height;
         }
 
         // 設定 (モニター + 端からの距離) からウィンドウの位置を決める
@@ -261,7 +275,7 @@ namespace DeskMeter
             try
             {
                 MigrateLegacyPosition();
-                WF.Screen scr = FindScreen(cfg.Monitor);
+                WF.Screen scr = FindScreen(cfg.Monitor, cfg.MonitorRect);
                 System.Drawing.Rectangle wa = scr.WorkingArea;
                 double scale = Native.DpiScale(scr.Bounds);
                 double dipW = ActualWidth > 0 ? ActualWidth : MeterView.WidthFor(cfg) * cfg.Scale;
@@ -299,6 +313,7 @@ namespace DeskMeter
                 System.Drawing.Rectangle wa = scr.WorkingArea;
                 int dl = r.Left - wa.Left, dr = wa.Right - r.Right, dt = r.Top - wa.Top, db = wa.Bottom - r.Bottom;
                 cfg.Monitor = scr.DeviceName;
+                cfg.MonitorRect = RectKey(scr);
                 cfg.AnchorH = dl <= dr ? "left" : "right";
                 cfg.AnchorV = dt <= db ? "top" : "bottom";
                 cfg.MonX = Math.Min(dl, dr);
@@ -322,6 +337,7 @@ namespace DeskMeter
             int w = (int)Math.Round(MeterView.WidthFor(cfg) * cfg.Scale * Native.DpiScale(scr.Bounds));
             int dl = (int)cfg.Left.Value - wa.Left, dr = wa.Right - ((int)cfg.Left.Value + w);
             cfg.Monitor = scr.DeviceName;
+            cfg.MonitorRect = RectKey(scr);
             cfg.AnchorH = dl <= dr ? "left" : "right";   // 近いほうの端を基準にする
             cfg.AnchorV = "top";
             cfg.MonX = Math.Max(0, Math.Min(dl, dr));
@@ -334,6 +350,7 @@ namespace DeskMeter
         void MoveToMonitor(string device)
         {
             cfg.Monitor = device;
+            cfg.MonitorRect = RectKey(FindScreen(device));
             cfg.AnchorH = "right";
             cfg.AnchorV = "top";
             cfg.MonX = EdgeMargin;
@@ -349,7 +366,7 @@ namespace DeskMeter
             base.OnSourceInitialized(e);
             hwnd = new WindowInteropHelper(this).Handle;
             long ex = Native.GetWindowLongPtr(hwnd, Native.GWL_EXSTYLE).ToInt64();
-            Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, new IntPtr(ex | Native.WS_EX_TOOLWINDOW));   // Alt+Tab に出さない
+            Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, new IntPtr(ex | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE));   // Alt+Tab に出さない。クリックしても活性化しない
             HwndSource.FromHwnd(hwnd).AddHook(WndProc);
 
             if (snapshotPath == null)
@@ -402,6 +419,12 @@ namespace DeskMeter
 
         IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            if (msg == Native.WM_MOUSEACTIVATE)
+            {
+                // クリックしても自分を活性化しない (作業中のアプリからキーボードの入力先を奪わない)。ドラッグは活性化なしでも動く
+                handled = true;
+                return new IntPtr(Native.MA_NOACTIVATE);
+            }
             if (msg == Native.WM_HOTKEY && wParam.ToInt32() == HotkeyId)
             {
                 ToggleVisible();
@@ -555,6 +578,14 @@ namespace DeskMeter
         void BuildMenu()
         {
             menu = new WF.ContextMenuStrip();
+            menu.Closed += delegate(object sender, WF.ToolStripDropDownClosedEventArgs e)
+            {
+                // Esc や自分のウィンドウのクリックで閉じたら、元のアプリに前面を返す。項目を選んだときはダイアログが出ることがあるのでそのまま。
+                // 別のアプリをクリックして閉じたときは、そのアプリが前面になっているので触らない
+                if (menuPrevFg != IntPtr.Zero && (e.CloseReason == WF.ToolStripDropDownCloseReason.Keyboard || e.CloseReason == WF.ToolStripDropDownCloseReason.AppClicked || e.CloseReason == WF.ToolStripDropDownCloseReason.CloseCalled))
+                    Native.SetForegroundWindow(menuPrevFg);
+                menuPrevFg = IntPtr.Zero;
+            };
 
             miSkin = new WF.ToolStripMenuItem("スキン");
             FillSkinMenu();
@@ -719,7 +750,7 @@ namespace DeskMeter
             menu.Opening += delegate
             {
                 UpdateLayoutMenus();
-                miVisible.Text = IsVisible ? "ウィジェットを隠す" : "ウィジェットを表示";
+                miVisible.Text = userHidden ? "ウィジェットを表示" : "ウィジェットを隠す";   // 全パネルを切り離して本体だけ隠れているときも「隠す」
                 foreach (WF.ToolStripItem it in miPanels.DropDownItems)
                 {
                     var mi = it as WF.ToolStripMenuItem;
@@ -888,7 +919,7 @@ namespace DeskMeter
                 settingsChangedTimer.Tick += delegate
                 {
                     settingsChangedTimer.Stop();
-                    if (!Settings.ExternallyModified()) return;   // 自分の Save によるもの
+                    if (!Settings.ExternallyModified() && !Settings.TakeMergedExternal()) return;   // 自分の Save によるもの
                     ReloadSettings();
                     if (tray != null) tray.ShowBalloonTip(3000, AppName, "settings.json の変更を反映しました。", WF.ToolTipIcon.Info);
                 };
@@ -1060,10 +1091,14 @@ namespace DeskMeter
             }
         }
 
+        IntPtr menuPrevFg;   // メニューを開く前に前面だったウィンドウ (選ばずに閉じたら返す)
+
         void ShowMenu()
         {
             if (menu == null) return;
-            Native.SetForegroundWindow(hwnd);
+            IntPtr fg = Native.GetForegroundWindow();
+            menuPrevFg = fg != IntPtr.Zero && !IsOurWindow(fg) ? fg : IntPtr.Zero;
+            Native.SetForegroundWindow(hwnd);   // 外をクリックしたときにメニューが閉じるよう、トレイのメニューと同じく一度前面にする
             menu.Show(WF.Cursor.Position);
         }
 

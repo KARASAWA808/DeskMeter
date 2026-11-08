@@ -117,8 +117,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `Hotkey` | `""` | 表示/非表示のホットキー。`"Ctrl+Alt+D"` のように `Ctrl` / `Alt` / `Shift` / `Win` とキー名（`A`〜`Z`、`0`〜`9`、`F1`〜`F12`、`Space` など）を `+` でつなぐ。空で無効 |
 | `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `clock` `calendar` `datetile` `weather`。最大 6 列 |
 | `CompactCores` | `false` | コアごとの使用率を 2 列に詰める |
-| `Floating` / `FloatPositions` | `[]` | 切り離したパネルの ID と、その位置（モニター名と作業領域の左上からのピクセル） |
-| `Monitor` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか |
+| `Floating` / `FloatPositions` | `[]` | 切り離したパネルの ID と、その位置（モニター名と位置・大きさ、作業領域の左上からのピクセル） |
+| `Monitor` / `MonitorRect` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか。`MonitorRect` はモニターの位置と大きさで、番号が振り直されても同じモニターを探すのに使います |
 | `BackgroundImage` / `BackgroundImageOpacity` | `""` / `0.35` | 背景画像（絶対パス、または exe のフォルダーからの相対パス）とその濃さ 0〜1 |
 | `MascotImage` / `MascotPlacement` / `MascotSize` | `""` / `"free"` / `220` | マスコット画像、置き方（`free` / `right` / `left`）、最大の高さ 60〜1200 px |
 | `ShowIp` | `true` | ネットワークパネルに内部 IP を出す。配信や画面共有で隠したいときは `false` |
