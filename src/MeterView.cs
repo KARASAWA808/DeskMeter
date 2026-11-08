@@ -1132,11 +1132,12 @@ namespace DeskMeter
         {
             DateTime now = DateTime.Now;
             FormattedText hm = Make(now.ToString(cfg.Clock24h ? "HH:mm" : "h:mm", Inv), 40, Cyan, TfB);
-            FormattedText ss = Make(now.ToString("ss", Inv), 23, Cyan, TfB);
-            double sx = x + (ColW - (hm.Width + 5 + ss.Width)) / 2;
+            FormattedText ss = cfg.ClockSeconds ? Make(now.ToString("ss", Inv), 23, Cyan, TfB) : null;   // 秒なしなら毎秒の再描画も要らない
+            double extra = ss != null ? 5 + ss.Width : !cfg.Clock24h ? 5 + 22 : 0;
+            double sx = x + (ColW - (hm.Width + extra)) / 2;
             dc.DrawText(hm, new Point(sx, y));
-            dc.DrawText(ss, new Point(sx + hm.Width + 5, y + hm.Baseline - ss.Baseline));
-            if (!cfg.Clock24h) T(dc, now.ToString("tt", Inv), sx + hm.Width + 5, y + 4, 11, Cyan);   // 12 時間制: 秒の上に AM / PM
+            if (ss != null) dc.DrawText(ss, new Point(sx + hm.Width + 5, y + hm.Baseline - ss.Baseline));
+            if (!cfg.Clock24h) T(dc, now.ToString("tt", Inv), sx + hm.Width + 5, ss != null ? y + 4 : y + 22, 11, Cyan);   // 12 時間制: 秒の上 (秒なしなら時分の横) に AM / PM
             y += 52;
             T(dc, now.ToString("yyyy年M月d日 (ddd)", Ja), x + ColW / 2, y, 13.5, Lime, 2);
             y += 20;

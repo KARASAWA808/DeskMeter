@@ -70,6 +70,8 @@ namespace DeskMeter
         public bool ShowHolidays = true;
         // 時計を 24 時間制にする (false で 12 時間制 + AM/PM)
         public bool Clock24h = true;
+        // 時計に秒を出す。false にすると毎秒の再描画が無くなり、更新間隔ごとの描画だけになる (負荷を抑えたいとき)
+        public bool ClockSeconds = true;
         // カレンダーの週を月曜から始める
         public bool WeekStartMonday = false;
         // 天気の単位: "metric" (°C, km/h) / "metric-ms" (°C, m/s) / "imperial" (°F, mph)

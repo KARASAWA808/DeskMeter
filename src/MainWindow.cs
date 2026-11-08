@@ -244,7 +244,7 @@ namespace DeskMeter
         // 時計 (秒表示) が出ていて計測間隔が 1 秒より長いときだけ、秒の変わり目にも再描画する。それ以外は計測のたびに描くだけ
         void ScheduleNextTick()
         {
-            if (cfg.IntervalMs <= 1000 || !ClockShown() || sampler.Paused)
+            if (cfg.IntervalMs <= 1000 || !ClockShown() || !cfg.ClockSeconds || sampler.Paused)
             {
                 timer.Stop();
                 return;
@@ -743,6 +743,7 @@ namespace DeskMeter
                 miInterval.DropDownItems.Add(mi);
             }
             miMeasure.DropDownItems.Add(Item("天気の場所を設定...", ShowLocationDialog));   // いちばん最初に変えたい項目なので先頭
+            miMeasure.DropDownItems.Add(Item("負荷を抑える設定にする (3 秒更新・秒なし・影なし・コア 2 列)", ApplyLowLoad));
             miMeasure.DropDownItems.Add(miInterval);
 
             miHistory = new WF.ToolStripMenuItem("グラフの時間幅");
@@ -780,6 +781,7 @@ namespace DeskMeter
             AddToggle(miClockCal, "24 時間制 (オフで 12 時間制)", "Clock24h");
             AddToggle(miClockCal, "週を月曜から始める", "WeekStartMonday");
             AddToggle(miClockCal, "日本の祝日を表示", "ShowHolidays");
+            AddToggle(miClockCal, "時計に秒を表示 (オフで毎秒の再描画をやめる)", "ClockSeconds");
             miClockCal.DropDownItems.Add(new WF.ToolStripSeparator());
             miClockCal.DropDownItems.Add(Item("世界時計を編集...", ShowWorldClockDialog));
             miClockCal.DropDownItems.Add(Item("メモとカウントダウンを編集...", ShowNotesDialog));
@@ -1420,6 +1422,23 @@ namespace DeskMeter
                 }
             }
             catch (Exception ex) { Log.Write("first run", ex); }
+        }
+
+        // 負荷を抑える組み合わせを一度に適用する (個別に戻せる)
+        void ApplyLowLoad()
+        {
+            cfg.IntervalMs = 3000;
+            cfg.ClockSeconds = false;
+            cfg.TextShadow = "off";
+            cfg.CompactCores = true;
+            cfg.LogCsv = false;
+            if (cfg.HistorySeconds > 300) cfg.HistorySeconds = 300;
+            ApplySkinAll();
+            RelayoutAll();
+            ScheduleNextTick();
+            sampler.Poke();
+            cfg.Save();
+            if (tray != null) tray.ShowBalloonTip(8000, AppName, "更新間隔 3 秒、時計の秒なし、文字の影なし、コア 2 列にしました。元に戻すには「計測と天気」→「更新間隔」、「見た目」→「時計・カレンダー・メモ」「文字の影・縁取り」、「表示する項目」で個別に変えてください。", WF.ToolTipIcon.Info);
         }
 
         void ShowMenu()
