@@ -55,7 +55,7 @@ namespace DeskMeter
                     else if (now - cpuOverSince >= cfg.AlertSeconds * 1000L && (!cpuAlerting || now - lastCpuAlert > AlertRepeatMs))
                     {
                         cpuAlerting = true; lastCpuAlert = now;
-                        Notify("CPU 使用率が " + cfg.AlertCpuPct + "% 以上の状態が " + MeterView.SpanText(cfg.AlertSeconds) + " 続いています (いま " + Math.Round(cpu) + "%)。");
+                        Notify("CPU 使用率が " + MeterView.SpanText(cfg.AlertSeconds) + "間 " + cfg.AlertCpuPct + "% 以上です (いま " + Math.Round(cpu) + "%)。");
                     }
                 }
                 else { cpuOverSince = 0; cpuAlerting = false; }
@@ -68,7 +68,7 @@ namespace DeskMeter
                     else if (now - memOverSince >= cfg.AlertSeconds * 1000L && (!memAlerting || now - lastMemAlert > AlertRepeatMs))
                     {
                         memAlerting = true; lastMemAlert = now;
-                        Notify("メモリ使用率が " + cfg.AlertMemPct + "% 以上の状態が " + MeterView.SpanText(cfg.AlertSeconds) + " 続いています (いま " + Math.Round(memPct) + "%)。");
+                        Notify("メモリ使用率が " + MeterView.SpanText(cfg.AlertSeconds) + "間 " + cfg.AlertMemPct + "% 以上です (いま " + Math.Round(memPct) + "%)。");
                     }
                 }
                 else { memOverSince = 0; memAlerting = false; }

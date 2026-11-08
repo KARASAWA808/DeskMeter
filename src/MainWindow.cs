@@ -133,6 +133,7 @@ namespace DeskMeter
         {
             this.snapshotPath = snapshotPath;
             cfg = Settings.Load();
+            if (Settings.IsFirstRun && snapshotPath == null) ApplyFirstRunDefaults();
 
             Title = AppName;
             WindowStyle = WindowStyle.None;
@@ -221,6 +222,8 @@ namespace DeskMeter
                 StartSettingsWatcher();
                 if (AppPaths.Redirected && tray != null)
                     tray.ShowBalloonTip(10000, AppName, (AppPaths.InTemp ? "zip の中から直接起動しているようです。フォルダーに展開してから起動してください。" : "exe のフォルダーに書き込めないので、") + "設定・ログ・テーマは " + AppPaths.DataDir + " に保存します。", WF.ToolTipIcon.Warning);
+                if (Settings.IsFirstRun && tray != null)
+                    tray.ShowBalloonTip(15000, AppName + " へようこそ", "右クリックでメニュー、左ドラッグで移動できます。天気の場所は「計測と天気」→「天気の場所を設定...」で変えられます。" + (firstRunScaled ? " 画面が小さいので 80% の大きさで始めました (「見た目」→「サイズ」)。" : ""), WF.ToolTipIcon.Info);
                 if (Settings.BrokenBackupPath != null && tray != null)
                     tray.ShowBalloonTip(8000, AppName, "settings.json が読めなかったので既定の設定で起動しました。元のファイルは " + Path.GetFileName(Settings.BrokenBackupPath) + " に退避してあります。", WF.ToolTipIcon.Warning);
                 else WarnSettingsProblems();
@@ -738,6 +741,7 @@ namespace DeskMeter
                 mi.Tag = v;
                 miInterval.DropDownItems.Add(mi);
             }
+            miMeasure.DropDownItems.Add(Item("天気の場所を設定...", ShowLocationDialog));   // いちばん最初に変えたい項目なので先頭
             miMeasure.DropDownItems.Add(miInterval);
 
             miHistory = new WF.ToolStripMenuItem("グラフの時間幅");
@@ -751,12 +755,22 @@ namespace DeskMeter
             miMeasure.DropDownItems.Add(miHistory);
 
             miPanels = new WF.ToolStripMenuItem("表示する項目");
-            foreach (string id in Settings.PanelIds)
+            // 種類ごとに区切る: ハードウェア / プロセス / 通信とドライブ / 時計と情報
+            string[][] panelGroups = {
+                new[] { "cpu", "memory", "gpu", "rings", "battery" },
+                new[] { "topcpu", "topmem" },
+                new[] { "network", "drives" },
+                new[] { "clock", "calendar", "datetile", "weather", "notes" } };
+            foreach (string[] g in panelGroups)
             {
-                string pid = id;
-                var mi = Item(Settings.PanelName(pid), delegate { cfg.TogglePanel(pid); RelayoutAll(); cfg.Save(); });
-                mi.Tag = pid;
-                miPanels.DropDownItems.Add(mi);
+                if (miPanels.DropDownItems.Count > 0) miPanels.DropDownItems.Add(new WF.ToolStripSeparator());
+                foreach (string id in g)
+                {
+                    string pid = id;
+                    var mi = Item(Settings.PanelName(pid), delegate { cfg.TogglePanel(pid); RelayoutAll(); cfg.Save(); });
+                    mi.Tag = pid;
+                    miPanels.DropDownItems.Add(mi);
+                }
             }
             miPanels.DropDownItems.Add(new WF.ToolStripSeparator());
             AddToggle(miPanels, "コアを2列で表示 (高さを節約)", "CompactCores");
@@ -820,7 +834,6 @@ namespace DeskMeter
 
             menu.Items.Add(new WF.ToolStripSeparator());
             miMeasure.DropDownItems.Add(new WF.ToolStripSeparator());
-            miMeasure.DropDownItems.Add(Item("天気の場所を設定...", ShowLocationDialog));
             miMeasure.DropDownItems.Add(Item("天気を今すぐ更新", delegate { sampler.RefreshWeatherNow(); }));
             miWeatherUnits = new WF.ToolStripMenuItem("天気の単位");
             foreach (string[] u in new[] { new[] { "metric", "°C / km/h" }, new[] { "metric-ms", "°C / m/s" }, new[] { "imperial", "°F / mph" } })
@@ -1115,7 +1128,7 @@ namespace DeskMeter
                 else
                 {
                     Log.Write("hotkey " + keys[i], new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
-                    if (tray != null) tray.ShowBalloonTip(5000, AppName, "ホットキー " + keys[i] + " (" + names[i] + ") は他のアプリが使っているため登録できませんでした。", WF.ToolTipIcon.Warning);
+                    if (tray != null) tray.ShowBalloonTip(5000, AppName, "ホットキー " + keys[i] + " (" + names[i] + ") は他のアプリが使っているため登録できませんでした。「ウィンドウ」→「ホットキー」で別のキーを選んでください。", WF.ToolTipIcon.Warning);
                 }
             }
             hotkeyRegistered = hotkeyOk[0];
@@ -1311,6 +1324,25 @@ namespace DeskMeter
 
         IntPtr menuPrevFg;   // メニューを開く前に前面だったウィンドウ (選ばずに閉じたら返す)
 
+        bool firstRunScaled;
+
+        // 初回起動: 画面が小さければ (作業領域の幅 1400 px 未満)、既定の 3 列 708 px が半分以上を占めるので 80% で始める
+        void ApplyFirstRunDefaults()
+        {
+            try
+            {
+                System.Drawing.Rectangle wa = WF.Screen.PrimaryScreen.WorkingArea;
+                if (wa.Width < 1400 || wa.Height < 800)
+                {
+                    cfg.Scale = 0.8;
+                    cfg.CompactCores = true;
+                    firstRunScaled = true;
+                    cfg.Save();
+                }
+            }
+            catch (Exception ex) { Log.Write("first run", ex); }
+        }
+
         void ShowMenu()
         {
             if (menu == null) return;
@@ -1454,7 +1486,7 @@ namespace DeskMeter
             }
             ReloadSettings();   // ファイルが無いので既定値が読み込まれる
             cfg.Save();
-            if (tray != null) tray.ShowBalloonTip(4000, AppName, "設定を初期値に戻しました。", WF.ToolTipIcon.Info);
+            if (tray != null) tray.ShowBalloonTip(6000, AppName, "設定を初期値に戻しました。元の設定は settings.backup-日時.json に残っています (「設定とフォルダー」→「フォルダーとログを開く」)。", WF.ToolTipIcon.Info);
         }
 
         readonly DispatcherTimer countdownTimer = new DispatcherTimer();

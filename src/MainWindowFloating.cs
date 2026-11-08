@@ -216,6 +216,7 @@ namespace DeskMeter
                     cfg.ApplyPreset(n);
                     RelayoutAll();
                     cfg.Save();
+                    if (tray != null) tray.ShowBalloonTip(5000, AppName, "配置プリセット「" + Settings.PresetDisplayName(n) + "」を適用しました。表示する項目も変わっています (「表示する項目」で戻せます)。", WF.ToolTipIcon.Info);
                 }));
             }
             menu.Items.Add(miPresets);

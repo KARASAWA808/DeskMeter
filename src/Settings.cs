@@ -124,12 +124,16 @@ namespace DeskMeter
         }
 
         // 起動時の読み込み。ファイルが壊れていたら settings.broken-<日時>.json に退避してから既定値で動く
+        // settings.json が無い状態で起動した (初回)。起動後の案内と、画面に合わせた初期値に使う
+        public static bool IsFirstRun;
+
         public static Settings Load()
         {
             bool broken;
             Settings s = TryLoad(out broken);
             if (s != null) return s;
             if (broken) BrokenBackupPath = BackupBroken();
+            else IsFirstRun = true;
             var fresh = new Settings();
             fresh.Normalize();
             return fresh;
@@ -205,7 +209,7 @@ namespace DeskMeter
                 case "network": return "ネットワーク";
                 case "drives": return "ドライブ";
                 case "topmem": return "メモリ上位プロセス";
-                case "cpu": return "CPU・メモリ";
+                case "cpu": return "CPU";
                 case "topcpu": return "CPU上位プロセス";
                 case "clock": return "時計";
                 case "calendar": return "カレンダー";

@@ -1289,8 +1289,9 @@ namespace DeskMeter
             y += 26;
             if (!cfg.WeatherEnabled)
             {
-                T(dc, "天気は無効です (settings.json)", x + ColW / 2, y, 12.5, Gray, 2);
-                return y + RowH;
+                T(dc, "天気は取得しません", x + ColW / 2, y, 12.5, Gray, 2);
+                T(dc, "「天気の場所を設定...」で変えられます", x + ColW / 2, y + RowH, 11.5, Gray, 2);
+                return y + RowH * 2;
             }
             Weather w = st.Weather;
             if (w == null)
