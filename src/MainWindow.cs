@@ -127,7 +127,7 @@ namespace DeskMeter
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miTimer, miTimerStop, miLook, miWindow, miMeasure, miSettings, miAlerts;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miTimer, miTimerStop, miLook, miWindow, miMeasure, miSettings, miAlerts, miPing;
 
         public MainWindow(string snapshotPath)
         {
@@ -187,6 +187,7 @@ namespace DeskMeter
                 {
                     InvalidateAll();
                     CheckAlerts();
+                    UpdateTrayText();
                     if (!timer.IsEnabled) ScheduleNextTick();
                 }));
             };
@@ -775,9 +776,13 @@ namespace DeskMeter
             miPanels.DropDownItems.Add(new WF.ToolStripSeparator());
             AddToggle(miPanels, "コアを2列で表示 (高さを節約)", "CompactCores");
             menu.Items.Add(miPanels);
-            miClockCal = new WF.ToolStripMenuItem("時計・カレンダー");
+            miClockCal = new WF.ToolStripMenuItem("時計・カレンダー・メモ");
             AddToggle(miClockCal, "24 時間制 (オフで 12 時間制)", "Clock24h");
             AddToggle(miClockCal, "週を月曜から始める", "WeekStartMonday");
+            AddToggle(miClockCal, "日本の祝日を表示", "ShowHolidays");
+            miClockCal.DropDownItems.Add(new WF.ToolStripSeparator());
+            miClockCal.DropDownItems.Add(Item("世界時計を編集...", ShowWorldClockDialog));
+            miClockCal.DropDownItems.Add(Item("メモとカウントダウンを編集...", ShowNotesDialog));
             miLook.DropDownItems.Add(miClockCal);
             miTimer = new WF.ToolStripMenuItem("タイマー");
             foreach (int m in new[] { 5, 10, 25, 45, 60 })
@@ -844,6 +849,11 @@ namespace DeskMeter
                 miWeatherUnits.DropDownItems.Add(mi);
             }
             miMeasure.DropDownItems.Add(miWeatherUnits);
+            AddToggle(miMeasure, "3 日予報を表示", "ShowForecast");
+            miMeasure.DropDownItems.Add(new WF.ToolStripSeparator());
+            AddToggle(miMeasure, "内部 IP を表示", "ShowIp");
+            miPing = StringMenu("Ping の宛先", "PingHost", new[] { "", "1.1.1.1", "8.8.8.8" }, delegate { sampler.Poke(); });
+            miMeasure.DropDownItems.Add(miPing);
             miMeasure.DropDownItems.Add(new WF.ToolStripSeparator());
             miMeasure.DropDownItems.Add(Item("ピークと起動後の通信量をリセット", delegate
             {
@@ -888,6 +898,7 @@ namespace DeskMeter
                 miVisible, miAuto, miSettings, help,
                 new WF.ToolStripSeparator(),
                 Item("終了", Close) });
+            visibleItemIndex = menu.Items.IndexOf(miVisible);
 
             menu.Opening += delegate
             {
@@ -908,6 +919,12 @@ namespace DeskMeter
                 SyncIntMenus();
                 SyncHotkeyMenu(miHotkeyEdit, cfg.EditHotkey);
                 SyncHotkeyMenu(miHotkeyClick, cfg.ClickThroughHotkey);
+                SyncHotkeyMenu(miPing, cfg.PingHost);
+                SyncToggles(miMeasure);
+                // 隠しているときは「ウィジェットを表示」を先頭に出す (トレイから開いたとき見つけやすい)
+                int visIdx = menu.Items.IndexOf(miVisible);
+                int wantIdx = userHidden ? 1 : visibleItemIndex;
+                if (visIdx != wantIdx) { menu.Items.Remove(miVisible); menu.Items.Insert(Math.Min(wantIdx, menu.Items.Count), miVisible); }
                 miHideMax.Checked = cfg.HideWhenMaximized;
                 foreach (WF.ToolStripMenuItem mi in miHover.DropDownItems) mi.Checked = (int)mi.Tag == cfg.HoverOpacity;
                 MarkCustom(miHover, cfg.HoverOpacity + "%", CustomInt);
@@ -1011,16 +1028,47 @@ namespace DeskMeter
         // Settings の bool フィールドを切り替えるチェック項目
         WF.ToolStripMenuItem HotkeyMenu(string title, string field, string[] presets)
         {
+            return StringMenu(title, field, presets, ApplyHotkey);
+        }
+
+        // 文字列の設定 1 つに対応するサブメニュー (空文字は「無効」)。settings.json で候補に無い値にしたときは MarkCustom が現在値を足す
+        WF.ToolStripMenuItem StringMenu(string title, string field, string[] presets, Action onChange)
+        {
             FieldInfo f = typeof(Settings).GetField(field);
             var m = new WF.ToolStripMenuItem(title);
             foreach (string k in presets)
             {
                 string v = k;
-                var mi = Item(v.Length == 0 ? "無効" : v, delegate { f.SetValue(cfg, v); ApplyHotkey(); cfg.Save(); });
+                var mi = Item(v.Length == 0 ? "無効" : v, delegate { f.SetValue(cfg, v); onChange(); cfg.Save(); InvalidateAll(); });
                 mi.Tag = v;
                 m.DropDownItems.Add(mi);
             }
             return m;
+        }
+
+        void ShowNotesDialog()
+        {
+            try
+            {
+                var dlg = new NotesDialog(cfg);
+                if (dlg.ShowDialog() != true) return;
+                if (!cfg.HasPanel("notes")) cfg.TogglePanel("notes");   // 書いたのに出ないと分かりにくいので、パネルをオンにする
+                RelayoutAll();
+                cfg.Save();
+            }
+            catch (Exception ex) { Log.Write("notes dialog", ex); }
+        }
+
+        void ShowWorldClockDialog()
+        {
+            try
+            {
+                var dlg = new WorldClockDialog(cfg);
+                if (dlg.ShowDialog() != true) return;
+                RelayoutAll();
+                cfg.Save();
+            }
+            catch (Exception ex) { Log.Write("world clock dialog", ex); }
         }
 
         void SyncHotkeyMenu(WF.ToolStripMenuItem m, string value)
@@ -1274,10 +1322,19 @@ namespace DeskMeter
         void BuildTray()
         {
             tray = new WF.NotifyIcon();
-            tray.Text = AppName + " v" + AppInfo.Version + " (ダブルクリックで表示/非表示)";
+            tray.Text = AppName + " v" + AppInfo.Version + " (クリックで表示/非表示)";
             tray.Icon = MakeIcon();
             tray.ContextMenuStrip = menu;
-            tray.DoubleClick += delegate { ToggleVisible(); };
+            // 左のシングルクリックで表示/非表示。ダブルクリックは 1 回目の MouseClick も起こすので、少し待って 2 回目が来なければシングルとみなす
+            trayClickTimer.Interval = TimeSpan.FromMilliseconds(WF.SystemInformation.DoubleClickTime);
+            trayClickTimer.Tick += delegate { trayClickTimer.Stop(); ToggleVisible(); };
+            tray.MouseClick += delegate(object s, WF.MouseEventArgs e)
+            {
+                if (e.Button != WF.MouseButtons.Left) return;
+                if (trayClickTimer.IsEnabled) trayClickTimer.Stop();   // 2 回目 = ダブルクリック: 1 回だけ切り替える
+                else trayClickTimer.Start();
+            };
+            tray.MouseDoubleClick += delegate(object s, WF.MouseEventArgs e) { if (e.Button == WF.MouseButtons.Left) { trayClickTimer.Stop(); ToggleVisible(); } };
             tray.Visible = true;
         }
 
@@ -1325,6 +1382,25 @@ namespace DeskMeter
         IntPtr menuPrevFg;   // メニューを開く前に前面だったウィンドウ (選ばずに閉じたら返す)
 
         bool firstRunScaled;
+        int visibleItemIndex;   // 「ウィジェットを隠す」の通常の位置
+        readonly DispatcherTimer trayClickTimer = new DispatcherTimer();
+        long trayTextAt;
+
+        // トレイのツールチップに CPU と RAM を出す (5 秒ごと。隠したまま様子を見られる)
+        void UpdateTrayText()
+        {
+            if (tray == null) return;
+            long now = (long)Native.GetTickCount64();
+            if (now - trayTextAt < 5000) return;
+            trayTextAt = now;
+            float cpu; ulong total, avail; bool gpu; float gpuUtil;
+            lock (sampler.S) { cpu = sampler.S.CpuTotal; total = sampler.S.RamTotal; avail = sampler.S.RamAvail; gpu = sampler.S.GpuOk; gpuUtil = sampler.S.GpuUtil; }
+            string t = AppName + "  CPU " + Math.Round(cpu) + "%";
+            if (total > 0) t += "  RAM " + Math.Round(100.0 * (total - avail) / total) + "%";
+            if (gpu) t += "  GPU " + Math.Round(gpuUtil) + "%";
+            if (t.Length > 63) t = t.Substring(0, 63);   // NotifyIcon.Text の上限
+            try { if (tray.Text != t) tray.Text = t; } catch { }
+        }
 
         // 初回起動: 画面が小さければ (作業領域の幅 1400 px 未満)、既定の 3 列 708 px が半分以上を占めるので 80% で始める
         void ApplyFirstRunDefaults()

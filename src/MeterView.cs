@@ -950,8 +950,8 @@ namespace DeskMeter
             }
             if (!any)
             {
-                T(dc, "settings.json の Notes と Countdowns に", x, y, 12, Gray);
-                T(dc, "書くとここに出ます", x, y + RowH, 12, Gray);
+                T(dc, "右クリック →「見た目」→「時計・カレンダー・メモ」→", x, y, 11.5, Gray);
+                T(dc, "「メモとカウントダウンを編集...」で書けます", x, y + RowH, 11.5, Gray);
                 y += RowH * 2;
             }
             return y + 4;
