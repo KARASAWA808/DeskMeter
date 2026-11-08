@@ -221,19 +221,27 @@ namespace DeskMeter
         }
 
         // 書かれたフォント名のどれか 1 つでも入っているか (無ければ WPF が既定フォントで代用するので、その旨をログに残す)
+        // 入っているフォント名の一覧。列挙は数百 ms かかるので起動後 1 回だけ (WPF 自体も起動時の一覧を使う)
+        static HashSet<string> installedFonts;
+
         static bool FontInstalled(string families)
         {
             try
             {
+                if (installedFonts == null)
+                {
+                    var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (FontFamily ff in Fonts.SystemFontFamilies)
+                    {
+                        set.Add(ff.Source);
+                        foreach (string n in ff.FamilyNames.Values) set.Add(n);
+                    }
+                    installedFonts = set;
+                }
                 foreach (string raw in families.Split(','))
                 {
                     string want = raw.Trim();
-                    if (want.Length == 0) continue;
-                    foreach (FontFamily ff in Fonts.SystemFontFamilies)
-                    {
-                        if (string.Equals(ff.Source, want, StringComparison.OrdinalIgnoreCase)) return true;
-                        foreach (string n in ff.FamilyNames.Values) if (string.Equals(n, want, StringComparison.OrdinalIgnoreCase)) return true;
-                    }
+                    if (want.Length > 0 && installedFonts.Contains(want)) return true;
                 }
                 return false;
             }

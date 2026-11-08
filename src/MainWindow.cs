@@ -145,9 +145,13 @@ namespace DeskMeter
             MouseLeftButtonDown += delegate
             {
                 if (cfg.Locked || view.EditMode) return;
+                Native.RECT before, after;
+                Native.GetWindowRect(hwnd, out before);
                 dragging = true;
                 try { DragMove(); } catch { }
                 dragging = false;
+                Native.GetWindowRect(hwnd, out after);
+                if (after.Left == before.Left && after.Top == before.Top) return;   // ただのクリック (動かしていない) なら保存も吸着もしない
                 SavePosition();      // 端に近ければ吸着させたうえで、モニター基準の位置として保存
                 RestorePosition();
             };
@@ -743,6 +747,8 @@ namespace DeskMeter
             help.DropDownItems.Add(Item("スキンの作り方 (skins フォルダー)", delegate { OpenHelp("custom-skin.html"); }));
             help.DropDownItems.Add(Item("CPU 温度・電力・ファンを表示する (HWiNFO 連携)", delegate { OpenHelp("hwinfo.html"); }));
             help.DropDownItems.Add(Item("ヘルプのフォルダーを開く", delegate { OpenHelp(null); }));
+            help.DropDownItems.Add(new WF.ToolStripSeparator());
+            help.DropDownItems.Add(Item("DeskMeter v" + AppInfo.Version + " - 新しい版を確認する (GitHub)", delegate { OpenUrl("https://github.com/KARASAWA808/DeskMeter/releases"); }));
             menu.Items.Add(help);
             menu.Items.Add(new WF.ToolStripSeparator());
             menu.Items.Add(Item("終了", Close));
@@ -1043,7 +1049,7 @@ namespace DeskMeter
         void BuildTray()
         {
             tray = new WF.NotifyIcon();
-            tray.Text = AppName + " (ダブルクリックで表示/非表示)";
+            tray.Text = AppName + " v" + AppInfo.Version + " (ダブルクリックで表示/非表示)";
             tray.Icon = MakeIcon();
             tray.ContextMenuStrip = menu;
             tray.DoubleClick += delegate { ToggleVisible(); };
@@ -1161,6 +1167,12 @@ namespace DeskMeter
                 }
             }
             catch (Exception ex) { Log.Write("pick image", ex); }
+        }
+
+        void OpenUrl(string url)
+        {
+            try { Process.Start(url); }
+            catch (Exception ex) { Log.Write("open url", ex); }
         }
 
         void OpenHelp(string file)

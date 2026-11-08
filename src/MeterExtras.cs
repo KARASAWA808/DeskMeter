@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -34,7 +35,8 @@ namespace DeskMeter
             return shadowBrush;
         }
 
-        // 上下左右 1px にずらして描き、縁取りにする
+        // 上下左右 1px にずらして描き、縁取りにする。
+        // (輪郭のジオメトリを 1 回なぞる方式も試したが、ソフトウェア描画では線のラスタライズが重く、全体の CPU 時間はこちらのほうが少ない)
         void DrawTextWithShadow(DrawingContext dc, FormattedText ft, Point p, Brush fg)
         {
             if (ShadowOn())
@@ -58,6 +60,7 @@ namespace DeskMeter
             public BitmapSource Image;
             public bool Failed;
             public int DecodeHeight;
+            public int Version;   // 読み込み要求の番号 (古い読み込みの結果を捨てるため)
         }
 
         readonly ImageSlot bgSlot = new ImageSlot();
@@ -78,44 +81,61 @@ namespace DeskMeter
             catch { return null; }
         }
 
-        // パスが変わったときだけ読み直す。失敗はログに 1 回だけ書く
+        // パスか大きさが変わったときだけ読み直す。読み込み (デコード) は別スレッドで行い、終わったら描き直す。
+        // 写真のデコードは数百 ms かかるので、描画スレッドで行うとそのあいだ画面が固まる。失敗はログに 1 回だけ書く
         BitmapSource GetImage(ImageSlot slot, string setting, int decodeHeight)
         {
             string path = ResolvePath(setting);
-            if (path == null) { slot.Path = null; slot.Image = null; slot.Failed = false; return null; }
+            if (path == null) { slot.Path = null; slot.Image = null; slot.Failed = false; slot.Version++; return null; }
             if (path == slot.Path && decodeHeight == slot.DecodeHeight) return slot.Failed ? null : slot.Image;   // 大きさを変えたら読み直す (拡大でぼやけないように)
+            if (path != slot.Path) { slot.Image = null; slot.Failed = false; }   // 同じ画像の大きさ違いなら、読み終わるまで今の画像を出しておく
             slot.Path = path;
             slot.DecodeHeight = decodeHeight;
-            slot.Image = null;
-            slot.Failed = false;
-            try
+            int version = ++slot.Version;
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                if (!File.Exists(path)) throw new FileNotFoundException("画像がありません", path);
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-                if (decodeHeight > 0) bmp.DecodePixelHeight = decodeHeight;
-                bmp.Rotation = ExifRotation(path);
-                bmp.UriSource = new Uri(path, UriKind.Absolute);
-                bmp.EndInit();
-                bmp.Freeze();
-                slot.Image = bmp;
-            }
-            catch (Exception ex)
-            {
-                slot.Failed = true;
-                Log.Write("image " + path, ex);
-                Action<string, string> h = ImageFailed;
-                if (h != null)
+                BitmapSource img = null;
+                Exception err = null;
+                try { img = DecodeImage(path, decodeHeight); }
+                catch (Exception ex) { err = ex; }
+                Dispatcher.BeginInvoke(new Action(delegate
                 {
-                    string reason = ex is FileNotFoundException ? "ファイルがありません"
-                        : ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ? "この形式は開けません (PNG / JPEG / GIF / BMP が使えます。WebP は対応コーデックが入っているときだけ)"
-                        : ex.Message;
-                    h(path, reason);
-                }
-            }
-            return slot.Image;
+                    if (slot.Version != version) return;   // そのあとに別の画像や大きさを求められた
+                    if (err == null) slot.Image = img;
+                    else
+                    {
+                        slot.Image = null;
+                        slot.Failed = true;
+                        Log.Write("image " + path, err);
+                        Action<string, string> h = ImageFailed;
+                        if (h != null)
+                        {
+                            string reason = err is FileNotFoundException ? "ファイルがありません"
+                                : err is NotSupportedException || err is System.Runtime.InteropServices.COMException ? "この形式は開けません (PNG / JPEG / GIF / BMP が使えます。WebP は対応コーデックが入っているときだけ)"
+                                : err.Message;
+                            h(path, reason);
+                        }
+                    }
+                    InvalidateMeasure();   // 立ち絵の幅で窓の大きさが変わる
+                    InvalidateVisual();
+                }));
+            });
+            return slot.Failed ? null : slot.Image;
+        }
+
+        static BitmapSource DecodeImage(string path, int decodeHeight)
+        {
+            if (!File.Exists(path)) throw new FileNotFoundException("画像がありません", path);
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            if (decodeHeight > 0) bmp.DecodePixelHeight = decodeHeight;
+            bmp.Rotation = ExifRotation(path);
+            bmp.UriSource = new Uri(path, UriKind.Absolute);
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
         }
 
         // JPEG の EXIF の向き。スマホの写真は横倒しのまま保存して向きだけ記録してあることが多く、そのままでは横倒しに出る
@@ -148,6 +168,8 @@ namespace DeskMeter
         {
             // デコードの高さは実際の表示ピクセル (窓の高さ × DPI × 拡大率) に合わせる。400 px 刻みに丸めて、窓の高さが少し変わるたびに読み直さないようにする
             int decodeH = (int)Math.Min(4400, Math.Max(1400, Math.Ceiling(contentH * dip * cfg.Scale / 400) * 400));
+            // 読み込み済みの大きさで足りていれば読み直さない (配置の編集などで高さが段を跨ぐたびに読み直さない)
+            if (bgSlot.Image != null && bgSlot.Path == ResolvePath(cfg.BackgroundImage) && bgSlot.DecodeHeight >= decodeH && bgSlot.DecodeHeight <= decodeH + 800) decodeH = bgSlot.DecodeHeight;
             BitmapSource img = GetImage(bgSlot, cfg.BackgroundImage, decodeH);
             if (img == null) return;
             double scale = Math.Max(contentW / img.PixelWidth, contentH / img.PixelHeight);

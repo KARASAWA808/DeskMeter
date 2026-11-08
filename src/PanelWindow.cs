@@ -43,9 +43,13 @@ namespace DeskMeter
             MouseLeftButtonDown += delegate
             {
                 if (cfg.Locked) return;
+                Native.RECT before, after;
+                Native.GetWindowRect(Hwnd, out before);
                 dragging = true;
                 try { DragMove(); } catch { }
                 dragging = false;
+                Native.GetWindowRect(Hwnd, out after);
+                if (after.Left == before.Left && after.Top == before.Top) return;   // ただのクリックなら保存しない
                 SavePosition();
             };
             // 行が増えて大きくなったとき (ドライブの追加、GPU の行、倍率の変更) も画面内に収める

@@ -164,6 +164,8 @@ namespace DeskMeter
         volatile bool smiGotLine;      // いまの nvidia-smi から 1 行でも受け取ったか
         bool smiGaveUp, smiFailLogged; // nvidia-smi が無い環境では一度だけ記録して以後は起動しない
         bool smiPausedKill;            // 非表示・ロック中に止めたので、再開時にすぐ起動し直す
+        long smiStartedAt;             // いまの nvidia-smi を起動した時刻 (出力が止まったままの検出用)
+        bool smiStallLogged;
 
         readonly HwInfo hwinfo = new HwInfo();
 
@@ -226,6 +228,7 @@ namespace DeskMeter
             if (e.Mode != PowerModes.Resume) return;
             netPrimed = false;
             procStamp = 0;
+            smiStartedAt = Tick();   // 眠っていた時間を「出力が止まった」と見なさない
             nicsDirty = true;
             // 天気は眠っていた分だけ古いので、落ち着いたころに取り直す
             weatherNext = Tick() + 20000;
@@ -257,6 +260,7 @@ namespace DeskMeter
             catch (Exception ex) { Log.Write("init", ex); }
             var sw = Stopwatch.StartNew();
             long lastNet = sw.ElapsedMilliseconds;
+            long lastLoop = 0;
             long nextProc = 0, nextDrives = 0, nextPing = 2000, nextNet = 0, nextHw = 0;
             var handles = new WaitHandle[] { stopEvent, wake };
             while (!stopEvent.WaitOne(0))
@@ -276,6 +280,9 @@ namespace DeskMeter
                     int secs = Math.Max(30, Math.Min(1800, cfg.HistorySeconds));
                     if (secs != histSeconds || interval != histInterval) ResizeHist(secs, interval);
                     long t0 = sw.ElapsedMilliseconds;
+                    // 前回から間隔の 3 倍以上あいていたら (スリープ復帰、停止からの再開)、差分で出す値の基準を捨てる。復帰のイベントより先にここへ来ることがある
+                    if (lastLoop > 0 && t0 - lastLoop > interval * 3L + 2000) { netPrimed = false; procStamp = 0; }
+                    lastLoop = t0;
                     long pst = Profiler.Enabled ? Stopwatch.GetTimestamp() : 0;
 
                     Safe("cpu", SampleCpu);
@@ -909,6 +916,7 @@ namespace DeskMeter
                 catch { }
                 p.BeginOutputReadLine();
                 smi = p;
+                smiStartedAt = Tick();
             }
             catch (Exception ex)
             {
@@ -961,14 +969,33 @@ namespace DeskMeter
                 }
                 smiRetryAt = now + smiRetrySec * 1000L;
             }
+            else if (!dead && now - Math.Max(smiStartedAt, GpuStampValue()) > Math.Max(30000, smiIntervalSec * 5000L))
+            {
+                // 生きているのに出力が止まった (ドライバーのリセット、スリープ復帰後に NVML が固まる等)。終了させて起動し直す。
+                // 1 行も出さないまま固まるなら、出力なしで終了したときと同じく再試行を倍々で遅らせる
+                KillSmi();
+                if (smiGotLine)
+                {
+                    if (!smiStallLogged) { smiStallLogged = true; Log.Write("nvidia-smi stopped reporting; restarting", null); }
+                    smiRetryAt = now;
+                }
+                else
+                {
+                    smiRetrySec = Math.Min(600, smiRetrySec * 2);
+                    smiRetryAt = now + smiRetrySec * 1000L;
+                }
+                dead = true;
+            }
             else if (!dead && smiIntervalSec != SmiInterval())
             {
                 StartSmi();   // 更新間隔が変わったので問い合わせの周期を合わせ直す
                 dead = false;
             }
             if (dead && !smiGaveUp && now >= smiRetryAt && !stopEvent.WaitOne(0)) StartSmi();
-            // nvidia-smi が動いていない間 (NVIDIA 以外の GPU、または起動に失敗中) は Windows の GPU カウンターで代用する
+            // nvidia-smi が動いていない間 (NVIDIA 以外の GPU、または起動に失敗中) は Windows の GPU カウンターで代用する。
+            // nvidia-smi が戻って値が来ていれば、プロセスごとに列挙する重いカウンターは外す
             if (smi == null) SampleGpuPdh();
+            else if (gpuPdhTried && smiGotLine) ReleaseGpuPdh();
             lock (S)
             {
                 if (S.GpuOk && now - S.GpuStamp > smiIntervalSec * 3000L + 3000) S.GpuOk = false;
@@ -979,6 +1006,17 @@ namespace DeskMeter
         }
 
         // ---------------------------------------------------------------- GPU (PDH。タスクマネージャーの「3D」と同じ数え方)
+
+        long GpuStampValue() { lock (S) return S.GpuStamp; }
+
+        void ReleaseGpuPdh()
+        {
+            pdh.Remove(hGpuEng);
+            pdh.Remove(hGpuMem);
+            hGpuEng = hGpuMem = IntPtr.Zero;
+            gpuPdhTried = false;
+            gpuLuid = null;
+        }
 
         void SampleGpuPdh()
         {

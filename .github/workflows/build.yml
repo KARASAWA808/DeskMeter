@@ -1,0 +1,38 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['previews/**', '**.md']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Windows 同梱の csc.exe でビルドする (SDK の準備は不要)
+      - name: Build
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File build.ps1
+
+      # 起動してスナップショットを 1 枚撮る (描画・計測の経路が一通り動くか)。ランナーには GPU も nvidia-smi も無いので GPU パネルは出ない
+      - name: Smoke test (snapshot)
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'snapshot.png'
+          $p = Start-Process -FilePath (Join-Path $PWD 'DeskMeter.exe') -ArgumentList @('--snapshot', $out, '--delay', '5') -WorkingDirectory $PWD -PassThru -Wait
+          if (Test-Path deskmeter.log) { Write-Host '--- deskmeter.log ---'; Get-Content deskmeter.log -Encoding UTF8 }
+          if ($p.ExitCode -ne 0) { throw "DeskMeter exited with $($p.ExitCode)" }
+          if (-not (Test-Path $out)) { throw 'snapshot.png was not written' }
+          Write-Host "snapshot: $((Get-Item $out).Length) bytes"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskMeter-${{ github.sha }}
+          path: |
+            DeskMeter.exe
+            ${{ runner.temp }}/snapshot.png
+          if-no-files-found: error

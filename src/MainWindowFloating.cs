@@ -127,7 +127,7 @@ namespace DeskMeter
         {
             sampler.Paused = userHidden || sessionLocked || displayOff || fullscreenApp;
             ScheduleNextTick();
-            if (!sampler.Paused) sampler.Poke();
+            sampler.Poke();   // 止めるときもすぐ反映する (次の計測を待たずに nvidia-smi を止める)
         }
 
         // 独立ウィンドウ上での右クリック: そのパネルを戻す項目つきで同じメニューを出す

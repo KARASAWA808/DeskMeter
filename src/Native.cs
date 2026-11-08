@@ -235,6 +235,8 @@ namespace DeskMeter
         static extern int PdhGetFormattedCounterArray(IntPtr counter, uint format, ref int bufferSize, out int itemCount, IntPtr buffer);
         [DllImport("pdh.dll")]
         static extern int PdhCloseQuery(IntPtr query);
+        [DllImport("pdh.dll")]
+        static extern int PdhRemoveCounter(IntPtr counter);
 
         IntPtr query, buf;
         int bufLen;
@@ -248,6 +250,8 @@ namespace DeskMeter
         }
 
         public bool Collect() { return query != IntPtr.Zero && PdhCollectQueryData(query) == 0; }
+
+        public void Remove(IntPtr counter) { if (counter != IntPtr.Zero) PdhRemoveCounter(counter); }
 
         // 値が無いとき (初回の rate 系カウンターなど) は NaN
         public double Value(IntPtr counter)
@@ -307,6 +311,59 @@ namespace DeskMeter
     }
 
     // 環境変数 DESKMETER_PROFILE=1 で起動すると、描画と計測にかかった時間を 30 秒ごとにログへ書く (負荷の調査用)
+    // 版と環境 (ログの先頭とメニューに出す。不具合の報告でどの版・どの Windows かが分かるように)
+    static class AppInfo
+    {
+        public static string Version
+        {
+            get
+            {
+                try
+                {
+                    Version v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                    return v.Major + "." + v.Minor + (v.Build > 0 ? "." + v.Build : "");
+                }
+                catch { return "?"; }
+            }
+        }
+
+        // 例 "Windows 11 Pro 24H2 (26100.1234)"。Environment.OSVersion はマニフェストが無いと 6.2 を返すのでレジストリから
+        public static string Windows
+        {
+            get
+            {
+                try
+                {
+                    using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                    {
+                        if (k == null) return Environment.OSVersion.ToString();
+                        string name = Convert.ToString(k.GetValue("ProductName"));
+                        string disp = Convert.ToString(k.GetValue("DisplayVersion") ?? k.GetValue("ReleaseId"));
+                        string build = Convert.ToString(k.GetValue("CurrentBuild"));
+                        object ubr = k.GetValue("UBR");
+                        int b;
+                        if (int.TryParse(build, out b) && b >= 22000 && name.StartsWith("Windows 10")) name = "Windows 11" + name.Substring(10);   // レジストリの ProductName は 11 でも "Windows 10" のまま
+                        return name + " " + disp + " (" + build + (ubr != null ? "." + ubr : "") + ")";
+                    }
+                }
+                catch { return Environment.OSVersion.ToString(); }
+            }
+        }
+
+        public static string DotNet
+        {
+            get
+            {
+                try
+                {
+                    using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
+                        return k == null ? Environment.Version.ToString() : Convert.ToString(k.GetValue("Version")) + " (release " + Convert.ToString(k.GetValue("Release")) + ")";
+                }
+                catch { return Environment.Version.ToString(); }
+            }
+        }
+    }
+
     static class Profiler
     {
         public static readonly bool Enabled = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DESKMETER_PROFILE"));
@@ -322,7 +379,7 @@ namespace DeskMeter
             lock (gate)
             {
                 sum += ticks; n++;
-                long now = Environment.TickCount;
+                long now = (long)Native.GetTickCount64();
                 if (nextReport == 0) nextReport = now + 30000;
                 if (now < nextReport) return;
                 double rms = renderTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency, sms = sampleTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -340,6 +397,7 @@ namespace DeskMeter
         static readonly object gate = new object();
         static int count;
         static long windowStart;
+        static bool headerWritten;   // 起動後の最初の記録の前に、版と環境を 1 行書く
         const long MaxBytes = 512 * 1024;   // これを超えていたら追記前に消す (起動をまたいで肥大化しないように)
         const int MaxPerHour = 200;         // 同じ失敗が毎秒続いてもログを埋め尽くさないように、1 時間あたりの行数を抑える
 
@@ -360,6 +418,11 @@ namespace DeskMeter
                         if (fi.Exists && fi.Length > MaxBytes) fi.Delete();
                     }
                     catch { }
+                    if (!headerWritten)
+                    {
+                        headerWritten = true;
+                        File.AppendAllText(path, "---- DeskMeter v" + AppInfo.Version + " / " + AppInfo.Windows + " / .NET " + AppInfo.DotNet + " / " + (IntPtr.Size * 8) + " bit ----" + Environment.NewLine, Encoding.UTF8);
+                    }
                     File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [" + where + "] " + ex + Environment.NewLine, Encoding.UTF8);
                 }
             }

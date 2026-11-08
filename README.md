@@ -1,5 +1,7 @@
 # DeskMeter
 
+[![build](https://github.com/KARASAWA808/DeskMeter/actions/workflows/build.yml/badge.svg)](https://github.com/KARASAWA808/DeskMeter/actions/workflows/build.yml)
+
 Rainmeter 風の、デスクトップ常駐リソースモニターです。Windows 10 / 11 で、インストール不要・追加ランタイム不要（.NET Framework 4.8 同梱のものを使用）の単一 exe として動きます。
 
 ![Classic スキン](previews/Classic.png)
@@ -63,7 +65,9 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 
 エラーは exe と同じフォルダーの `deskmeter.log` に書かれます（メニューの「フォルダーとログを開く」から開けます）（512 KB を超えると次の書き込み時に消して作り直します）。設定・スキン・画像の読み込みに問題があったときはタスクトレイの通知でも知らせます。
 
-不具合は [Issues](../../issues) へ。Windows のバージョン、`deskmeter.log`、できれば `settings.json`（`Latitude`/`Longitude`/`LocationName` は消して構いません）を添えてもらえると助かります。
+不具合は [Issues](../../issues) へ。DeskMeter の版（メニューの「ヘルプ」の一番下に出ます。`deskmeter.log` の先頭行にも版と Windows の版が入ります）、`deskmeter.log`、できれば `settings.json`（`Latitude`/`Longitude`/`LocationName` は消して構いません）を添えてもらえると助かります。
+
+版ごとの変更点は [CHANGELOG.md](CHANGELOG.md) にあります。新しい版は「ヘルプ」→「DeskMeter vX.Y.Z - 新しい版を確認する」で Releases ページを開いて確かめられます（自動では確認しません）。
 
 ## 動作環境
 
@@ -133,11 +137,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 | 引数 | 動き |
 | --- | --- |
-| `--snapshot out.png [--delay 秒] [--edit]` | 描画内容を PNG に保存して終了します（既定 8 秒後。`--edit` で配置編集中の見た目）。README のプレビューはこれで撮っています |
+| `--snapshot out.png [--delay 秒] [--edit]` | 描画内容を PNG に保存して終了します（既定 8 秒後。`--edit` で配置編集中の見た目）。README のプレビューはこれで撮っています（`tools\make-previews.ps1` でスキンのプレビューを撮り直せます） |
 | `--reload` | 起動中の DeskMeter に設定ファイルの再読み込みを頼んで終了します |
 | `--toggle-edit` | 起動中の DeskMeter の配置編集モードを切り替えて終了します |
 
 2 つ目の `DeskMeter.exe` を普通に起動すると、先に動いているものを表示して自分は終了します。
+
+## English
+
+DeskMeter is a Rainmeter-style always-on-desktop resource monitor for Windows 10 / 11: a single `DeskMeter.exe` with no installer and no extra runtime (it uses the .NET Framework 4.8 that ships with Windows). It shows CPU (per core, per process), memory, GPU (NVIDIA via `nvidia-smi`; other GPUs via Windows counters), network, drives, clock, calendar with Japanese holidays, and weather (Open-Meteo). It can sit behind other windows or stay on top, comes with 12 skins plus JSON custom skins, supports detached panels on other monitors, and pauses sampling while hidden, locked, the display is off, or a fullscreen app covers it. The UI and documentation are in Japanese. Download the zip from [Releases](../../releases), extract it, and run `DeskMeter.exe`; settings live in `settings.json` next to the exe. Build from source with `build.ps1` (uses the C# compiler bundled with Windows).
 
 ## ライセンス
 
