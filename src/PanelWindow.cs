@@ -56,9 +56,9 @@ namespace DeskMeter
             SizeChanged += delegate { if (!dragging) RestorePosition(); };
             MouseRightButtonUp += delegate { owner.ShowMenuFor(Id); };
             MouseDoubleClick += delegate { owner.OpenPanelTarget(Id); };
-            Opacity = cfg.HoverOpacity / 100.0;
+            Opacity = cfg.ClickThrough ? 1 : cfg.HoverOpacity / 100.0;
             MouseEnter += delegate { if (cfg.HoverOpacity < 100) Opacity = 1; };
-            MouseLeave += delegate { if (cfg.HoverOpacity < 100) Opacity = cfg.HoverOpacity / 100.0; };
+            MouseLeave += delegate { if (cfg.HoverOpacity < 100) Opacity = cfg.ClickThrough ? 1 : cfg.HoverOpacity / 100.0; };
         }
 
         protected override void OnSourceInitialized(EventArgs e)

@@ -679,7 +679,7 @@ namespace DeskMeter
         readonly List<Point> graphPts = new List<Point>(512);
 
         // max <= 0 のときは履歴の最大値に合わせて自動スケール。戻り値は使った上限値
-        double Graph(DrawingContext dc, Rect r, Hist[] series, Pen[] pens, double max)
+        double Graph(DrawingContext dc, Rect r, Hist[] series, Pen[] pens, double max, string spanLabel = null)
         {
             dc.DrawRectangle(GraphBg, null, r);
             dc.DrawLine(GridPen, new Point(r.X, Math.Round(r.Y + r.Height / 3) + 0.5), new Point(r.Right, Math.Round(r.Y + r.Height / 3) + 0.5));
@@ -743,7 +743,7 @@ namespace DeskMeter
             dc.Pop();
             dc.DrawRectangle(null, GraphBorder, new Rect(r.X + 0.5, r.Y + 0.5, r.Width - 1, r.Height - 1));
             // 右上にグラフが表す時間幅
-            T(dc, SpanText(cfg.HistorySeconds), r.Right - 4, r.Y + 1, 10, Gray, 1);
+            T(dc, spanLabel ?? SpanText(cfg.HistorySeconds), r.Right - 4, r.Y + 1, 10, Gray, 1);   // 既定はグラフの時間幅。Ping のように別の周期で積むものは呼び元が渡す
             return max;
         }
 
@@ -887,7 +887,7 @@ namespace DeskMeter
                 // 直近 60 回の応答時間 (タイムアウトは天井)
                 var pr = new Rect(x, y + 1, ColW, 26);
                 double pmax = Math.Max(50, st.PingHist.Max() * 1.15);
-                Graph(dc, pr, new[] { st.PingHist }, new[] { PenYellow }, pmax);
+                Graph(dc, pr, new[] { st.PingHist }, new[] { PenYellow }, pmax, SpanText(st.PingHist.Cap * Math.Max(5, cfg.IntervalMs / 1000)) + " (" + st.PingHist.Cap.ToString(Inv) + "回)");
                 ScaleLabel(dc, pr, N(pmax, "0", " ms"));
                 y += 31;
             }

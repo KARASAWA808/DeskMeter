@@ -169,7 +169,7 @@ namespace DeskMeter
             };
             MouseRightButtonUp += delegate { ShowMenu(); };
             MouseEnter += delegate { if (cfg.HoverOpacity < 100) Opacity = 1; };
-            MouseLeave += delegate { if (cfg.HoverOpacity < 100) Opacity = cfg.HoverOpacity / 100.0; };
+            MouseLeave += delegate { if (cfg.HoverOpacity < 100) Opacity = DimOpacity; };
             Closed += delegate { Cleanup(); };
             // 内容の高さが決まった / 変わったときに、右端・下端基準の位置を保つ
             SizeChanged += delegate { if (!dragging) RestorePosition(); };
@@ -405,7 +405,7 @@ namespace DeskMeter
                 {
                     bool fs = cfg.Mode != "topmost" && FullscreenCoversUs();
                     if (fs != fullscreenApp) { fullscreenApp = fs; UpdatePaused(); }
-                    bool mx = cfg.HideWhenMaximized && !userHidden && MaximizedCoversUs();
+                    bool mx = cfg.HideWhenMaximized && !userHidden && !maxOverride && MaximizedCoversUs();
                     if (mx != hiddenByMax) SetAutoHidden(mx);
                 };
                 fullscreenTimer.Start();
@@ -511,8 +511,11 @@ namespace DeskMeter
         {
             try
             {
-                if (cfg.Mode != "desktop" || hwnd == IntPtr.Zero || IsOurWindow(fg)) return;
+                if (hwnd == IntPtr.Zero || IsOurWindow(fg)) return;
                 string cls = Native.ClassOf(fg);
+                // 自動非表示をホットキーで解いていたら、別のウィンドウ (メニュー以外) が前面になった時点で解除を終える
+                if (maxOverride && !cls.StartsWith("WindowsForms", StringComparison.Ordinal)) maxOverride = false;
+                if (cfg.Mode != "desktop") return;
                 if (!showDesktop)
                 {
                     if (cls == "WorkerW" && IsBelow(fg))
@@ -570,6 +573,7 @@ namespace DeskMeter
             bool through = cfg.ClickThrough && snapshotPath == null && !view.EditMode;
             ex = through ? ex | Native.WS_EX_TRANSPARENT : ex & ~Native.WS_EX_TRANSPARENT;
             Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, new IntPtr(ex));
+            ApplyHoverOpacity();   // 透過中は薄くしない
         }
 
         void SetEditMode(bool on)
@@ -1048,11 +1052,20 @@ namespace DeskMeter
             if (hwnd == IntPtr.Zero || snapshotPath != null) return;
             string[] keys = { cfg.Hotkey, cfg.EditHotkey, cfg.ClickThroughHotkey };
             string[] names = { "表示/非表示", "配置の編集", "クリック透過" };
+            var used = new Dictionary<uint, int>();   // (mods, vk) → 先に登録した番号
             for (int i = 0; i < keys.Length; i++)
             {
                 if (hotkeyOk[i]) { Native.UnregisterHotKey(hwnd, HotkeyId + i); hotkeyOk[i] = false; }
                 uint mods, vk;
                 if (!ParseHotkey(keys[i], out mods, out vk)) continue;
+                uint combo = (mods << 16) | (vk & 0xFFFF);
+                int first;
+                if (used.TryGetValue(combo, out first))
+                {
+                    if (tray != null) tray.ShowBalloonTip(5000, AppName, "ホットキー " + keys[i] + " は「" + names[first] + "」と同じなので「" + names[i] + "」には使えません。別のキーにしてください。", WF.ToolTipIcon.Warning);
+                    continue;
+                }
+                used[combo] = i;
                 if (Native.RegisterHotKey(hwnd, HotkeyId + i, mods | Native.MOD_NOREPEAT, vk)) hotkeyOk[i] = true;
                 else
                 {

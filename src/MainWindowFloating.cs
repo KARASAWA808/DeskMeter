@@ -15,6 +15,7 @@ namespace DeskMeter
         readonly List<PanelWindow> floats = new List<PanelWindow>();
         bool userHidden;         // 「ウィジェットを隠す」で隠している
         bool hiddenByMax;        // 同じモニターの最大化ウィンドウが前面なので隠している (設定で有効なとき)
+        bool maxOverride;        // 自動非表示中にホットキーやトレイで表示した。前面のウィンドウが変わるまで隠さない
         bool hiddenByFloat;      // 列にパネルが無くなったので本体だけ隠している
         string menuPanelId;      // 独立ウィンドウ上で右クリックしたパネル
         WF.ToolStripMenuItem miDetach, miAttachThis, miPresets, miThemes;
@@ -124,10 +125,12 @@ namespace DeskMeter
             UpdatePaused();
         }
 
-        // 普段の不透明度 (HoverOpacity)。マウスが載っている窓は 100%
+        // 普段の不透明度 (HoverOpacity)。マウスが載っている窓は 100%。クリック透過中はマウスが入らないので薄くしない
+        double DimOpacity { get { return cfg.ClickThrough ? 1 : cfg.HoverOpacity / 100.0; } }
+
         void ApplyHoverOpacity()
         {
-            double dim = cfg.HoverOpacity / 100.0;
+            double dim = DimOpacity;
             Opacity = IsMouseOver ? 1 : dim;
             foreach (PanelWindow f in floats) f.Opacity = f.IsMouseOver ? 1 : dim;
         }
@@ -143,7 +146,7 @@ namespace DeskMeter
             }
             else
             {
-                hiddenByMax = false;   // 手で表示したら、最大化中の自動非表示は次の確認までいったん解く
+                if (hiddenByMax) { hiddenByMax = false; maxOverride = true; }   // 手で表示したら、前面のウィンドウが変わるまで自動では隠さない
                 if (!hiddenByFloat) { Show(); ApplyMode(); }
                 foreach (PanelWindow f in floats) { f.Show(); f.ApplyMode(); }
                 ScheduleNextTick();
@@ -156,7 +159,7 @@ namespace DeskMeter
         // 隠している間とセッションロック中は計測をスキップする
         void UpdatePaused()
         {
-            sampler.Paused = userHidden || hiddenByMax || sessionLocked || displayOff || fullscreenApp;
+            sampler.Paused = userHidden || sessionLocked || displayOff || fullscreenApp;   // 最大化中の自動非表示では計測を続ける (CSV 記録と通知のため)
             ScheduleNextTick();
             sampler.Poke();   // 止めるときもすぐ反映する (次の計測を待たずに nvidia-smi を止める)
         }
