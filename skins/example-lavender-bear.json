@@ -1,4 +1,6 @@
 {
+  "_comment": "DeskMeter のユーザー定義スキンの例 (パステル紫・ハートの飾り・くまのマスコット付き。見た目の拡張項目を全部使っている)。書き方は help\\custom-skin.html を参照。",
+
   "BackgroundGradient": "#F1E6FF,#DCCBFF",
   "Card": "#C8FFFFFF", "CardBorder": "#CDB8F5", "CardRadius": 14,
   "TileRadius": 18, "BarStyle": "pill", "GraphArea": true,

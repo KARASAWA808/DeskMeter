@@ -48,7 +48,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 2. 右クリックでメニューが開きます。左ドラッグで移動します。タスクトレイのアイコンからも同じメニューを開けます。
 3. 設定は exe と同じフォルダーの `settings.json` に保存されます（メニューの「設定ファイルを開く」で編集。保存すると自動で反映されます）。
 
-主なメニュー: スキン / 表示モード（デスクトップに固定・常に最前面・通常）/ モニターへ移動 / サイズ / 背景の不透明度 / 更新間隔 / グラフの時間幅 / 表示する項目 / 配置の編集 / パネルを切り離す / 配置プリセット / テーマ / 画像 / ホットキー / 天気の場所を設定 / Windows 起動時に開始 / 設定を初期値に戻す / フォルダーとログを開く / ヘルプ
+主なメニュー: スキン / 表示モード（デスクトップに固定・常に最前面・通常）/ モニターへ移動 / 位置を固定 / クリックを透過 / サイズ / 背景の不透明度 / 文字の影・縁取り / 更新間隔 / グラフの時間幅 / 表示する項目 / 配置の編集 / 配置を元に戻す / パネルを切り離す / 配置プリセット / テーマ / 画像 / ホットキー / ウィジェットを隠す / 天気の場所を設定 / 天気を今すぐ更新 / Peak と起動後の通信量をリセット / Windows 起動時に開始 / 設定ファイルを開く・再読み込み / 設定を初期値に戻す / フォルダーとログを開く / ヘルプ
 
 ### 更新するとき
 
@@ -63,7 +63,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 
 ### ログと不具合の報告
 
-エラーは exe と同じフォルダーの `deskmeter.log` に書かれます（メニューの「フォルダーとログを開く」から開けます）（512 KB を超えると次の書き込み時に消して作り直します）。設定・スキン・画像の読み込みに問題があったときはタスクトレイの通知でも知らせます。
+エラーは exe と同じフォルダーの `deskmeter.log` に書かれます（メニューの「フォルダーとログを開く」から開けます）（512 KB を超えると次の書き込み時に消して作り直します。同じ失敗が続いても埋め尽くさないよう、1 時間に 200 行を超えるとしばらく記録を止めます）。設定・スキン・画像の読み込みに問題があったときはタスクトレイの通知でも知らせます。
 
 不具合は [Issues](../../issues) へ。DeskMeter の版（メニューの「ヘルプ」の一番下に出ます。`deskmeter.log` の先頭行にも版と Windows の版が入ります）、`deskmeter.log`、できれば `settings.json`（`Latitude`/`Longitude`/`LocationName` は消して構いません）を添えてもらえると助かります。
 
@@ -122,7 +122,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `Layout` | 標準の 3 列 | 列ごとのパネル ID の配列。ID は `gpu` `cpu` `memory` `network` `drives` `topcpu` `topmem` `rings` `clock` `calendar` `datetile` `weather`。最大 6 列 |
 | `CompactCores` | `false` | コアごとの使用率を 2 列に詰める |
 | `Floating` / `FloatPositions` | `[]` | 切り離したパネルの ID と、その位置（モニター名と位置・大きさ、作業領域の左上からのピクセル） |
-| `Monitor` / `MonitorId` / `MonitorRect` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか。`MonitorId`（モニター固有の ID）と `MonitorRect`（位置と大きさ）は、モニターの番号が振り直されても同じモニターを探すためのもので、自動で書かれます |
+| `Monitor` / `MonitorId` / `MonitorRect` / `AnchorH` / `AnchorV` / `MonX` / `MonY` | メイン / `"right"` / `"top"` / `8` / `8` | 本体の位置。どのモニターの、どの端（`left`/`right`、`top`/`bottom`）から何ピクセルか（`MonX`/`MonY` は 0〜20000）。`MonitorId`（モニター固有の ID）と `MonitorRect`（位置と大きさ）は、モニターの番号が振り直されても同じモニターを探すためのもので、自動で書かれます |
 | `BackgroundImage` / `BackgroundImageOpacity` | `""` / `0.35` | 背景画像（絶対パス、または exe のフォルダーからの相対パス）とその濃さ 0〜1 |
 | `MascotImage` / `MascotPlacement` / `MascotSize` | `""` / `"free"` / `220` | マスコット画像、置き方（`free` / `right` / `left`）、最大の高さ 60〜1200 px |
 | `ShowIp` | `true` | ネットワークパネルに内部 IP を出す。配信や画面共有で隠したいときは `false` |
@@ -140,6 +140,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | `--snapshot out.png [--delay 秒] [--edit]` | 描画内容を PNG に保存して終了します（既定 8 秒後。`--edit` で配置編集中の見た目）。README のプレビューはこれで撮っています（`tools\make-previews.ps1` でスキンのプレビューを撮り直せます） |
 | `--reload` | 起動中の DeskMeter に設定ファイルの再読み込みを頼んで終了します |
 | `--toggle-edit` | 起動中の DeskMeter の配置編集モードを切り替えて終了します |
+
+`--reload` と `--toggle-edit` は、起動中の DeskMeter が無いときは何もせず `deskmeter.log` に記録して終了します。
 
 2 つ目の `DeskMeter.exe` を普通に起動すると、先に動いているものを表示して自分は終了します。
 

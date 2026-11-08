@@ -25,7 +25,7 @@
 <body>
 <main>
 <h1>CPU 温度・電力・ファンを表示する (HWiNFO 連携)</h1>
-<p class="meta">DeskMeter ヘルプ · 2026-11-07</p>
+<p class="meta">DeskMeter ヘルプ · 2026-11-08</p>
 
 <h2>概要</h2>
 <p>Windows の標準機能だけでは CPU の温度やパッケージ電力、CPU ファンの回転数は取れません。DeskMeter はこれらを <strong>HWiNFO64</strong> (無料のハードウェア監視ソフト) から受け取ります。HWiNFO64 を起動して「Shared Memory Support」をオンにしておくと、CPU パネルの「Clock:」行の下に次のような行が増えます。</p>
@@ -73,7 +73,8 @@
   <tr><td>出ていたのに消えた</td><td>無料版の 12 時間制限で Shared Memory Support が切れた。または HWiNFO64 を閉じた</td><td>HWiNFO64 の Settings でもう一度 Shared Memory Support をオンにする</td></tr>
   <tr><td>温度が思っていたセンサーと違う</td><td>CPU センサーに「CPU Package」などの名前が無く、最初の温度を使っている</td><td>HWiNFO64 の Sensors 画面で使いたい項目を右クリック →「Rename」で「CPU Package」に変える</td></tr>
   <tr><td>ファンが出ない</td><td>マザーボードのセンサーに「CPU」を含むファンのラベルが無い (「Fan1」などになっている)</td><td>HWiNFO64 で該当のファンを「CPU」にリネームする</td></tr>
-  <tr><td>温度が °F で出る</td><td>HWiNFO64 の設定で華氏表示にしている</td><td>DeskMeter は数値をそのまま出すので、HWiNFO64 側を摂氏に戻す</td></tr>
+  <tr><td>温度がおかしい (150 °C など)</td><td>HWiNFO64 の設定で華氏表示にしている</td><td>DeskMeter は単位を見て摂氏に直すので通常は起きない。起きたら deskmeter.log と HWiNFO64 の版を添えて報告してほしい</td></tr>
+  <tr><td>行が出たり消えたりする</td><td>HWiNFO64 のポーリング間隔が長く、更新が止まったと見なされた</td><td>DeskMeter は HWiNFO64 の更新間隔の 3 倍まで待つので通常は起きない。HWiNFO64 の Polling Period を見直す</td></tr>
 </table>
 </main>
 </body>

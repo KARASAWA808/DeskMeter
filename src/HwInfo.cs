@@ -76,6 +76,7 @@ namespace DeskMeter
         }
 
         bool stale;
+        long lastPoll, pollDelta;   // 直近の poll_time と、その変化の間隔 (HWiNFO 側のポーリング間隔の目安)
         static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         bool Read(IntPtr p)
@@ -87,10 +88,17 @@ namespace DeskMeter
             if (region < HEADER_LEN) return false;
 
             if ((uint)Marshal.ReadInt32(p, 0) != SIGNATURE) return false;   // HWiNFO 終了後は "DEAD" になる
-            // poll_time (UNIX 秒)。HWiNFO が更新を止めると共有メモリは残ったまま古い値になるので、30 秒以上更新が無ければ表示しない
+            // poll_time (UNIX 秒)。HWiNFO が更新を止めると共有メモリは残ったまま古い値になるので、しばらく更新が無ければ表示しない。
+            // 「しばらく」は HWiNFO 側のポーリング間隔 (観測した poll_time の変化の間隔) の 3 倍 + 5 秒。間隔が分かるまでは 120 秒
             long poll = Marshal.ReadInt64(p, 12);
             long nowUnix = (long)(DateTime.UtcNow - Epoch).TotalSeconds;
-            if (poll > 0 && nowUnix - poll > 30) { stale = true; return false; }
+            if (poll != lastPoll)
+            {
+                if (lastPoll > 0 && poll > lastPoll) pollDelta = poll - lastPoll;
+                lastPoll = poll;
+            }
+            long limit = pollDelta > 0 ? Math.Min(600, Math.Max(30, pollDelta * 3 + 5)) : 120;
+            if (poll > 0 && nowUnix - poll > limit) { stale = true; return false; }
             long sensOff = (uint)Marshal.ReadInt32(p, 20), sensLen = (uint)Marshal.ReadInt32(p, 24), sensN = (uint)Marshal.ReadInt32(p, 28);
             long readOff = (uint)Marshal.ReadInt32(p, 32), readLen = (uint)Marshal.ReadInt32(p, 36), readN = (uint)Marshal.ReadInt32(p, 40);
             if (sensLen < SENSOR_LEN || readLen < READING_LEN || sensN > 4096 || readN > 65536) return false;
@@ -123,7 +131,7 @@ namespace DeskMeter
                 {
                     case TYPE_TEMP:
                         rank = TempRank(label);
-                        if (rank < tempRank) { tempRank = rank; temp = Value(e); }
+                        if (rank < tempRank) { tempRank = rank; temp = Temp(e); }
                         break;
                     case TYPE_POWER:
                         rank = PowerRank(label);
@@ -133,7 +141,9 @@ namespace DeskMeter
                         // ファンは CPU センサーではなくマザーボードのセンサーに付くので、ラベルだけで判断する
                         if (label.IndexOf("CPU", StringComparison.OrdinalIgnoreCase) < 0) break;
                         rank = Eq(label, "CPU") ? 0 : label.StartsWith("CPU", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
-                        if (rank < fanRank) { fanRank = rank; fan = Value(e); }
+                        float rpm = Value(e);
+                        if (float.IsNaN(rpm) || rpm <= 0) rank += 100;   // 0 rpm (ファンが無い端子) より、回っているほうを優先する
+                        if (rank < fanRank) { fanRank = rank; fan = rpm; }
                         break;
                 }
             }
@@ -162,6 +172,15 @@ namespace DeskMeter
 
         static bool Eq(string a, string b) { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
 
+        // 温度。HWiNFO の設定が華氏なら摂氏に直す (szUnit が "°F")
+        static float Temp(IntPtr e)
+        {
+            float v = Value(e);
+            if (float.IsNaN(v)) return v;
+            string unit = Str(e, 12 + STR_LEN + STR_LEN, UNIT_LEN);
+            return unit.IndexOf('F') >= 0 ? (v - 32) * 5 / 9 : v;
+        }
+
         static float Value(IntPtr e)
         {
             double v = BitConverter.Int64BitsToDouble(Marshal.ReadInt64(e, 4 + 4 + 4 + STR_LEN + STR_LEN + UNIT_LEN));
@@ -169,12 +188,14 @@ namespace DeskMeter
         }
 
         // ANSI の固定長文字列 (NUL 終端)
-        static string Str(IntPtr e, int offset)
+        static string Str(IntPtr e, int offset) { return Str(e, offset, STR_LEN); }
+
+        static string Str(IntPtr e, int offset, int len)
         {
-            var bytes = new byte[STR_LEN];
-            Marshal.Copy(new IntPtr(e.ToInt64() + offset), bytes, 0, STR_LEN);
+            var bytes = new byte[len];
+            Marshal.Copy(new IntPtr(e.ToInt64() + offset), bytes, 0, len);
             int n = Array.IndexOf(bytes, (byte)0);
-            if (n < 0) n = STR_LEN;
+            if (n < 0) n = len;
             return Encoding.Default.GetString(bytes, 0, n).Trim();
         }
     }

@@ -27,7 +27,7 @@
 <body>
 <main>
 <h1>スキンの作り方 (skins フォルダー)</h1>
-<p class="meta">DeskMeter ヘルプ · 2026-11-07</p>
+<p class="meta">DeskMeter ヘルプ · 2026-11-08</p>
 
 <h2>概要</h2>
 <p>DeskMeter.exe と同じフォルダーの <code>skins</code> フォルダーに JSON ファイルを置くと、それがスキンになります。ファイル名 (拡張子を除いたもの) がそのままスキン名で、右クリックメニューの「スキン」で、組み込みの 12 種の下に区切り線を挟んで並びます。メニューを開くたびにフォルダーを見直すので、ファイルを足したり消したりしても再起動は要りません。</p>
@@ -77,7 +77,7 @@
   <tr><td><code>Dim</code></td><td>色</td><td>カレンダーの前後の月の日付など、さらに薄い文字</td></tr>
   <tr><td><code>Magenta</code></td><td>色</td><td>風、ページファイル、リングゲージの 4 本目</td></tr>
   <tr><td><code>Violet</code></td><td>色</td><td>UV 指数、GPU と CPU の Fan、キャッシュ済みメモリ、メモリ構成の「変更済み」</td></tr>
-  <tr><td><code>Blue</code></td><td>色</td><td>メモリ構成の「スタンバイ」。<code>CalSat</code> を省略したときの土曜の色にもなる</td></tr>
+  <tr><td><code>Blue</code></td><td>色</td><td>メモリ構成の「スタンバイ」</td></tr>
   <tr><td><code>Track</code></td><td>色</td><td>バーの背景 (まだ埋まっていない部分)</td></tr>
   <tr><td><code>GraphBg</code></td><td>色</td><td>折れ線グラフの背景</td></tr>
   <tr><td><code>GraphBorder</code></td><td>色</td><td>折れ線グラフの枠線</td></tr>
@@ -85,7 +85,7 @@
   <tr><td><code>Separator</code></td><td>色</td><td>パネル内の区切り線</td></tr>
   <tr><td><code>CalHead</code></td><td>色</td><td>カレンダーの曜日行の背景</td></tr>
   <tr><td><code>Today</code></td><td>色</td><td>カレンダーの今日の丸</td></tr>
-  <tr><td><code>CalSun</code> / <code>CalSat</code></td><td>色</td><td>カレンダーの日曜 / 土曜の文字</td></tr>
+  <tr><td><code>CalSun</code> / <code>CalSat</code></td><td>色</td><td>カレンダーの日曜 (祝日も) / 土曜の文字。省略すると Classic の赤 / 青のまま (<code>Danger</code> や <code>Blue</code> には連動しない)</td></tr>
   <tr><td><code>DateTile</code></td><td>色 (2 色可)</td><td>日付タイルの背景。<code>"#上,#下"</code> でグラデーション</td></tr>
   <tr><td><code>DateTileText</code></td><td>色</td><td>日付タイルの文字</td></tr>
   <tr><td><code>Sun</code> / <code>CloudLight</code> / <code>CloudDark</code> / <code>Rain</code> / <code>Snow</code></td><td>色</td><td>天気アイコンの太陽、雲の明るい面と暗い面、雨、雪</td></tr>
@@ -171,7 +171,7 @@
   <tr><td><code>Mascot</code></td><td>"cat" / "bunny" / "bear"</td><td>いちばん空いている列の下に描くキャラクター。空きが 64px 未満なら描かない</td></tr>
   <tr><td><code>MascotBody</code> / <code>MascotAccent</code> / <code>MascotEye</code></td><td>色</td><td>キャラクターの体 / 耳の内側・ほっぺ / 目の色</td></tr>
 </table>
-<p>例 (ハートと くまのパステル紫):</p>
+<p>例 (ハートと くまのパステル紫)。全項目を書いた完全版は <code>skins\example-lavender-bear.json</code> にあります:</p>
 <pre><code>{
   "BackgroundGradient": "#F1E6FF,#DCCBFF",
   "Card": "#C8FFFFFF", "CardBorder": "#CDB8F5", "CardRadius": 14,
@@ -179,7 +179,7 @@
   "Decor": "hearts", "DecorColor": "#B57BEE",
   "Mascot": "bear", "MascotBody": "#F5E6D3", "MascotAccent": "#FFB3CC", "MascotEye": "#4A3340",
   "Title": "#4A3A5A", "Text1": "#B5651D", "Text2": "#6B5BD2", "Accent1": "#3FAF80", "Accent2": "#FF8A5C",
-  "Muted": "#9A8FA8", "Dim": "#D8CFE6", "Track": "#EEE4F8", "GraphBg": "#FBF8FF", "Separator": "#CDB8F5",
+  "Muted": "#7D7190", "Dim": "#D8CFE6", "Track": "#EEE4F8", "GraphBg": "#FBF8FF", "Separator": "#CDB8F5",
   "CalHead": "#E6D8FF", "Today": "#8C6BE0", "DateTile": "#C4A8FF,#8C6BE0"
 }</code></pre>
 
