@@ -102,7 +102,7 @@ namespace DeskMeter
             {
                 case "standard": return "標準 (3列)";
                 case "wide": return "ワイド (5列・コア2列表示)";
-                case "sidebar": return "サイドバー (1列: 時計・リング・ネット・ドライブ・天気)";
+                case "sidebar": return "サイドバー (1列・5 パネル)";
                 case "compact": return "コンパクト (1列: 時計・リング・ネット)";
                 case "dashboard": return "ダッシュボード (4列・全パネル)";
                 case "floating": return "すべて切り離す (パネルごとに独立ウィンドウ)";

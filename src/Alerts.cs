@@ -15,6 +15,7 @@ namespace DeskMeter
         long lastCpuAlert, lastMemAlert, lastDiskAlert, lastTempAlert, lastBatAlert;
         bool cpuAlerting, memAlerting, diskAlerting, tempAlerting, batAlerting;
         readonly List<KeyValuePair<WF.ToolStripMenuItem, FieldInfo>> intMenus = new List<KeyValuePair<WF.ToolStripMenuItem, FieldInfo>>();
+        readonly Dictionary<WF.ToolStripMenuItem, string> intUnits = new Dictionary<WF.ToolStripMenuItem, string>();
 
         void CheckAlerts()
         {
@@ -137,7 +138,7 @@ namespace DeskMeter
             m.DropDownItems.Add(IntMenu("CPU 使用率が高い状態が続いたら", "AlertCpuPct", new[] { 0, 80, 90, 95 }, "%"));
             m.DropDownItems.Add(IntMenu("メモリ使用率が高い状態が続いたら", "AlertMemPct", new[] { 0, 85, 90, 95 }, "%"));
             m.DropDownItems.Add(IntMenu("ドライブの空きが少ないとき", "AlertDiskFreePct", new[] { 0, 5, 10, 20 }, "% 未満"));
-            m.DropDownItems.Add(IntMenu("温度が高いとき (CPU は HWiNFO 連携時、GPU は NVIDIA)", "AlertTempC", new[] { 0, 80, 90 }, " °C"));
+            m.DropDownItems.Add(IntMenu("温度が高いとき (CPU は HWiNFO 連携時)", "AlertTempC", new[] { 0, 80, 90 }, " °C"));
             m.DropDownItems.Add(IntMenu("バッテリー残量が少ないとき (駆動中)", "AlertBatteryPct", new[] { 0, 10, 20, 30 }, "% 以下"));
             m.DropDownItems.Add(new WF.ToolStripSeparator());
             m.DropDownItems.Add(IntMenu("「続いたら」の長さ", "AlertSeconds", new[] { 30, 60, 180, 300 }, "s"));
@@ -157,6 +158,7 @@ namespace DeskMeter
                 m.DropDownItems.Add(mi);
             }
             intMenus.Add(new KeyValuePair<WF.ToolStripMenuItem, FieldInfo>(m, f));
+            intUnits[m] = unit;
             return m;
         }
 
@@ -170,7 +172,8 @@ namespace DeskMeter
                     var mi = it as WF.ToolStripMenuItem;
                     if (mi != null && mi.Tag is int) mi.Checked = (int)mi.Tag == cur;
                 }
-                MarkCustom(kv.Key, cur.ToString(System.Globalization.CultureInfo.InvariantCulture), CustomInt);
+                string unit = intUnits[kv.Key];
+                MarkCustom(kv.Key, unit == "s" ? MeterView.SpanText(cur) : cur.ToString(System.Globalization.CultureInfo.InvariantCulture) + unit, CustomInt);
             }
         }
     }
