@@ -127,7 +127,7 @@ namespace DeskMeter
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
-            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miTimer;
+            miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miTimer, miLook, miWindow, miMeasure, miSettings, miAlerts;
 
         public MainWindow(string snapshotPath)
         {
@@ -643,6 +643,12 @@ namespace DeskMeter
                 menuPrevFg = IntPtr.Zero;
             };
 
+            // 項目が多いので、よく使うものを上に置き、残りは 4 つのグループにまとめる (最後に並べ直す)
+            miLook = new WF.ToolStripMenuItem("見た目 (サイズ・不透明度・画像・時計の表記)");
+            miWindow = new WF.ToolStripMenuItem("ウィンドウ (表示モード・位置・ホットキー)");
+            miMeasure = new WF.ToolStripMenuItem("計測と天気 (更新間隔・天気の場所)");
+            miSettings = new WF.ToolStripMenuItem("設定ファイルとフォルダー");
+
             miSkin = new WF.ToolStripMenuItem("スキン");
             FillSkinMenu();
             menu.Items.Add(miSkin);
@@ -654,10 +660,10 @@ namespace DeskMeter
             mode.DropDownItems.Add(miDesktop);
             mode.DropDownItems.Add(miTopmost);
             mode.DropDownItems.Add(miNormal);
-            menu.Items.Add(mode);
+            miWindow.DropDownItems.Add(mode);
 
             miMonitor = new WF.ToolStripMenuItem("モニターへ移動");
-            menu.Items.Add(miMonitor);
+            miWindow.DropDownItems.Add(miMonitor);
 
             miScale = new WF.ToolStripMenuItem("サイズ");
             foreach (int p in new[] { 70, 80, 90, 100, 110, 125, 150 })
@@ -667,7 +673,7 @@ namespace DeskMeter
                 mi.Tag = pct;
                 miScale.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miScale);
+            miLook.DropDownItems.Add(miScale);
 
             miOpacity = new WF.ToolStripMenuItem("背景の不透明度");
             foreach (int p in new[] { 100, 90, 80, 70, 60, 50, 30, 0 })
@@ -677,7 +683,7 @@ namespace DeskMeter
                 mi.Tag = pct;
                 miOpacity.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miOpacity);
+            miLook.DropDownItems.Add(miOpacity);
 
             miShadow = new WF.ToolStripMenuItem("文字の影・縁取り");
             foreach (string[] opt in new[] { new[] { "auto", "自動 (背景が薄いとき)" }, new[] { "on", "常に" }, new[] { "off", "なし" } })
@@ -687,7 +693,7 @@ namespace DeskMeter
                 mi.Tag = v;
                 miShadow.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miShadow);
+            miLook.DropDownItems.Add(miShadow);
 
             miImages = new WF.ToolStripMenuItem("画像");
             miImages.DropDownItems.Add(Item("マスコット画像を選ぶ...", delegate { PickImage(true); }));
@@ -722,7 +728,7 @@ namespace DeskMeter
                 miBgImageOpacity.DropDownItems.Add(mi);
             }
             miImages.DropDownItems.Add(miBgImageOpacity);
-            menu.Items.Add(miImages);
+            miLook.DropDownItems.Add(miImages);
 
             miInterval = new WF.ToolStripMenuItem("更新間隔");
             foreach (int ms in new[] { 250, 500, 1000, 2000, 3000, 5000, 10000 })
@@ -732,7 +738,7 @@ namespace DeskMeter
                 mi.Tag = v;
                 miInterval.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miInterval);
+            miMeasure.DropDownItems.Add(miInterval);
 
             miHistory = new WF.ToolStripMenuItem("グラフの時間幅");
             foreach (int s in new[] { 30, 60, 120, 300, 600, 1800 })
@@ -742,7 +748,7 @@ namespace DeskMeter
                 mi.Tag = v;
                 miHistory.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miHistory);
+            miMeasure.DropDownItems.Add(miHistory);
 
             miPanels = new WF.ToolStripMenuItem("表示する項目");
             foreach (string id in Settings.PanelIds)
@@ -758,8 +764,8 @@ namespace DeskMeter
             miClockCal = new WF.ToolStripMenuItem("時計・カレンダー");
             AddToggle(miClockCal, "24 時間制 (オフで 12 時間制)", "Clock24h");
             AddToggle(miClockCal, "週を月曜から始める", "WeekStartMonday");
-            menu.Items.Add(miClockCal);
-            miTimer = new WF.ToolStripMenuItem("タイマー (時計パネルに残り時間、終わるとトレイで通知)");
+            miLook.DropDownItems.Add(miClockCal);
+            miTimer = new WF.ToolStripMenuItem("タイマー (5〜60 分。時計パネルに残り時間)");
             foreach (int m in new[] { 5, 10, 25, 45, 60 })
             {
                 int min = m;
@@ -768,7 +774,7 @@ namespace DeskMeter
             miTimer.DropDownItems.Add(new WF.ToolStripSeparator());
             miTimer.DropDownItems.Add(Item("止める", delegate { lock (sampler.S) { sampler.S.TimerEndTick = 0; } InvalidateAll(); }));
             menu.Items.Add(miTimer);
-            menu.Items.Add(BuildAlertMenu());
+            miAlerts = BuildAlertMenu();
 
             miEdit = Item("配置の編集 (ドラッグで並べ替え)", delegate { SetEditMode(!view.EditMode); });
             menu.Items.Add(miEdit);
@@ -788,10 +794,10 @@ namespace DeskMeter
                 mi.Tag = pct;
                 miHover.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miLock);
-            menu.Items.Add(miClick);
-            menu.Items.Add(miHideMax);
-            menu.Items.Add(miHover);
+            miWindow.DropDownItems.Add(miLock);
+            miWindow.DropDownItems.Add(miClick);
+            miWindow.DropDownItems.Add(miHideMax);
+            miLook.DropDownItems.Add(miHover);
             miVisible = Item("ウィジェットを隠す", ToggleVisible);
             menu.Items.Add(miVisible);
             miHotkey = new WF.ToolStripMenuItem("ホットキー (表示/非表示)");
@@ -802,15 +808,17 @@ namespace DeskMeter
                 mi.Tag = v;
                 miHotkey.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miHotkey);
+            miWindow.DropDownItems.Add(new WF.ToolStripSeparator());
+            miWindow.DropDownItems.Add(miHotkey);
             miHotkeyEdit = HotkeyMenu("ホットキー (配置の編集)", "EditHotkey", new[] { "", "Ctrl+Alt+E", "Ctrl+Shift+E", "Win+Shift+E" });
-            menu.Items.Add(miHotkeyEdit);
+            miWindow.DropDownItems.Add(miHotkeyEdit);
             miHotkeyClick = HotkeyMenu("ホットキー (クリック透過の切り替え)", "ClickThroughHotkey", new[] { "", "Ctrl+Alt+T", "Ctrl+Shift+T", "Win+Shift+T" });
-            menu.Items.Add(miHotkeyClick);
+            miWindow.DropDownItems.Add(miHotkeyClick);
 
             menu.Items.Add(new WF.ToolStripSeparator());
-            menu.Items.Add(Item("天気を今すぐ更新", delegate { sampler.RefreshWeatherNow(); }));
-            menu.Items.Add(Item("天気の場所を設定...", ShowLocationDialog));
+            miMeasure.DropDownItems.Add(new WF.ToolStripSeparator());
+            miMeasure.DropDownItems.Add(Item("天気の場所を設定...", ShowLocationDialog));
+            miMeasure.DropDownItems.Add(Item("天気を今すぐ更新", delegate { sampler.RefreshWeatherNow(); }));
             miWeatherUnits = new WF.ToolStripMenuItem("天気の単位");
             foreach (string[] u in new[] { new[] { "metric", "°C / km/h" }, new[] { "metric-ms", "°C / m/s" }, new[] { "imperial", "°F / mph" } })
             {
@@ -819,26 +827,29 @@ namespace DeskMeter
                 mi.Tag = v;
                 miWeatherUnits.DropDownItems.Add(mi);
             }
-            menu.Items.Add(miWeatherUnits);
-            menu.Items.Add(Item("Peak と起動後の通信量をリセット", delegate
+            miMeasure.DropDownItems.Add(miWeatherUnits);
+            miMeasure.DropDownItems.Add(new WF.ToolStripSeparator());
+            miMeasure.DropDownItems.Add(Item("Peak と起動後の通信量をリセット", delegate
             {
                 lock (sampler.S) { sampler.S.PeakBps = 0; sampler.S.SessUp = 0; sampler.S.SessDown = 0; sampler.S.PingSent = 0; sampler.S.PingLost = 0; }
                 InvalidateAll();
             }));
             miAuto = Item("Windows 起動時に開始", ToggleAutoStart);
-            menu.Items.Add(miAuto);
-            menu.Items.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
-            menu.Items.Add(Item("設定ファイルを再読み込み", ReloadSettings));
-            menu.Items.Add(Item("設定を初期値に戻す...", ResetSettings));
-            menu.Items.Add(Item("設定一式を書き出す (zip)...", ExportSettings));
-            menu.Items.Add(Item("設定一式を読み込む (zip)...", ImportSettings));
+            miSettings.DropDownItems.Add(Item("設定ファイルを開く (settings.json)", OpenSettings));
+            miSettings.DropDownItems.Add(Item("設定ファイルを再読み込み", ReloadSettings));
+            miSettings.DropDownItems.Add(new WF.ToolStripSeparator());
+            miSettings.DropDownItems.Add(Item("設定一式を書き出す (zip)...", ExportSettings));
+            miSettings.DropDownItems.Add(Item("設定一式を読み込む (zip)...", ImportSettings));
+            miSettings.DropDownItems.Add(Item("設定を初期値に戻す...", ResetSettings));
+            miSettings.DropDownItems.Add(new WF.ToolStripSeparator());
             var folders = miFolders = new WF.ToolStripMenuItem("フォルダーとログを開く");
             folders.DropDownItems.Add(Item("DeskMeter のフォルダー (設定・スキン・テーマ)", delegate { OpenPath(AppPaths.Dir); }));
             if (AppPaths.Redirected) folders.DropDownItems.Add(Item("設定・ログ・テーマの保存先 (" + AppPaths.DataDir + ")", delegate { OpenPath(AppPaths.DataDir); }));
             folders.DropDownItems.Add(Item("ログ (deskmeter.log)", OpenLog));
             folders.DropDownItems.Add(new WF.ToolStripSeparator());
             AddToggle(folders, "1 分ごとに CSV に記録する (deskmeter-日付.csv)", "LogCsv");
-            menu.Items.Add(folders);
+            miSettings.DropDownItems.Add(folders);
+            miSettings.DropDownItems.Add(miAuto);
             var help = new WF.ToolStripMenuItem("ヘルプ");
             help.DropDownItems.Add(Item("天気の場所を設定する (地名検索 / 緯度・経度)", delegate { OpenHelp("weather-location.html"); }));
             help.DropDownItems.Add(Item("スキンの作り方 (skins フォルダー)", delegate { OpenHelp("custom-skin.html"); }));
@@ -846,9 +857,17 @@ namespace DeskMeter
             help.DropDownItems.Add(Item("ヘルプのフォルダーを開く", delegate { OpenHelp(null); }));
             help.DropDownItems.Add(new WF.ToolStripSeparator());
             help.DropDownItems.Add(Item("DeskMeter v" + AppInfo.Version + " - 新しい版を確認する (GitHub)", delegate { OpenUrl("https://github.com/KARASAWA808/DeskMeter/releases"); }));
-            menu.Items.Add(help);
-            menu.Items.Add(new WF.ToolStripSeparator());
-            menu.Items.Add(Item("終了", Close));
+            // 使う順に並べ直す: 見た目の切り替え → 配置 → グループ → 通知・タイマー → 隠す → 設定・ヘルプ → 終了
+            menu.Items.Clear();
+            menu.Items.AddRange(new WF.ToolStripItem[] {
+                miAttachThis,
+                miSkin, miThemes, miPresets, miPanels, miEdit, miUndoLayout, miDetach,
+                new WF.ToolStripSeparator(),
+                miLook, miWindow, miMeasure, miAlerts, miTimer,
+                new WF.ToolStripSeparator(),
+                miVisible, miSettings, help,
+                new WF.ToolStripSeparator(),
+                Item("終了", Close) });
 
             menu.Opening += delegate
             {
