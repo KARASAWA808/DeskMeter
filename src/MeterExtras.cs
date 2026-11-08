@@ -323,25 +323,50 @@ namespace DeskMeter
         readonly Dictionary<Brush, Pen> ringPens = new Dictionary<Brush, Pen>();
         Pen ringTrack;
 
-        static Pen RoundPen(Brush b, double thick)
+        // 角なしのスキンでは端も角も直角のペン
+        Pen RoundPen(Brush b, double thick)
         {
             var pen = new Pen(b, thick);
-            pen.StartLineCap = PenLineCap.Round;
-            pen.EndLineCap = PenLineCap.Round;
+            pen.StartLineCap = sk.Sharp ? PenLineCap.Flat : PenLineCap.Round;
+            pen.EndLineCap = sk.Sharp ? PenLineCap.Flat : PenLineCap.Round;
+            pen.LineJoin = PenLineJoin.Miter;
             pen.Freeze();
             return pen;
         }
 
-        // 左下から時計回りに 270° のリング
+        // 左下から時計回りに 270° のリング。角なしのスキンでは下が開いた四角 (左下 → 上 → 右下)
         void Ring(DrawingContext dc, double cx, double cy, double r, double thick, double frac, Brush color)
         {
             if (ringTrack == null) ringTrack = RoundPen(Track, thick);
-            dc.DrawGeometry(null, ringTrack, Arc(cx, cy, r, 135, 270));
+            dc.DrawGeometry(null, ringTrack, sk.Sharp ? SquareArc(cx, cy, r, 1) : Arc(cx, cy, r, 135, 270));
             frac = Math.Max(0, Math.Min(1, frac));
             if (frac < 0.005) return;
             Pen pen;
             if (!ringPens.TryGetValue(color, out pen)) { pen = RoundPen(color, thick); ringPens[color] = pen; }
-            dc.DrawGeometry(null, pen, Arc(cx, cy, r, 135, 270 * frac));
+            dc.DrawGeometry(null, pen, sk.Sharp ? SquareArc(cx, cy, r, frac) : Arc(cx, cy, r, 135, 270 * frac));
+        }
+
+        // 四角いゲージ: 左下の角から左辺を上がり、上辺を右へ、右辺を下がって右下の角まで (周の 3/4)。frac はその長さに対する割合
+        static StreamGeometry SquareArc(double cx, double cy, double r, double frac)
+        {
+            double side = r * 2 * 0.92;   // 円のリングと同じくらいの見た目の大きさに
+            double h = side / 2;
+            Point[] pts = { new Point(cx - h, cy + h), new Point(cx - h, cy - h), new Point(cx + h, cy - h), new Point(cx + h, cy + h) };
+            double remain = side * 3 * frac;
+            var g = new StreamGeometry();
+            using (StreamGeometryContext ctx = g.Open())
+            {
+                ctx.BeginFigure(pts[0], false, false);
+                for (int i = 1; i < pts.Length && remain > 0; i++)
+                {
+                    double seg = Math.Min(side, remain);
+                    double t = seg / side;
+                    ctx.LineTo(new Point(pts[i - 1].X + (pts[i].X - pts[i - 1].X) * t, pts[i - 1].Y + (pts[i].Y - pts[i - 1].Y) * t), true, false);
+                    remain -= seg;
+                }
+            }
+            g.Freeze();
+            return g;
         }
 
         static StreamGeometry Arc(double cx, double cy, double r, double startDeg, double sweepDeg)

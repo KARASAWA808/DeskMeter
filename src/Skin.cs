@@ -76,7 +76,7 @@ namespace DeskMeter
             return r;
         }
 
-        public static readonly string[] BuiltIn = { "Classic", "ClassicSharp", "Cyberpunk", "Retro", "Light", "KawaiiPink", "KawaiiMint", "Synthwave", "Matrix", "Nord", "Dracula", "Frost", "Notebook" };
+        public static readonly string[] BuiltIn = { "Classic", "ClassicSharp", "Cyberpunk", "CyberpunkSharp", "Retro", "RetroSharp", "Light", "KawaiiPink", "KawaiiMint", "Synthwave", "Matrix", "Nord", "Dracula", "Frost", "Notebook" };
 
         // 組み込み + skins フォルダーのスキン名 (呼ぶたびにフォルダーを見直す)
         public static string[] Names
@@ -131,7 +131,9 @@ namespace DeskMeter
                 case "Classic": return "Classic";
                 case "ClassicSharp": return "Classic Sharp (角なし)";
                 case "Cyberpunk": return "Cyberpunk (ネオン)";
+                case "CyberpunkSharp": return "Cyberpunk Sharp (ネオン・角なし)";
                 case "Retro": return "Retro (アンバーCRT)";
+                case "RetroSharp": return "Retro Sharp (アンバーCRT・角なし)";
                 case "Light": return "Light (明るい壁紙向け)";
                 case "KawaiiPink": return "Kawaii Pink (さくら・うさぎ)";
                 case "KawaiiMint": return "Kawaii Mint (ミント・ねこ)";
@@ -150,7 +152,9 @@ namespace DeskMeter
             switch (name)
             {
                 case "Cyberpunk": return Cyberpunk();
+                case "CyberpunkSharp": return Sharpen(Cyberpunk(), "CyberpunkSharp");
                 case "Retro": return Retro();
+                case "RetroSharp": return Sharpen(Retro(), "RetroSharp");
                 case "Light": return Light();
                 case "Classic": return Classic();
                 case "ClassicSharp": return ClassicSharp();
@@ -411,15 +415,17 @@ namespace DeskMeter
             return s;
         }
 
-        // Classic の色のまま、角丸を全部なくしたもの (窓・見出しアイコン・バー・日付タイル)
-        public static Skin ClassicSharp()
+        // Classic の色のまま、角丸を全部なくしたもの (窓・見出しアイコン・バー・日付タイル・リングゲージ)
+        public static Skin ClassicSharp() { return Sharpen(Classic(), "ClassicSharp"); }
+
+        // 既存のスキンの角丸を全部なくす (Sharp 版を作る)
+        static Skin Sharpen(Skin s, string name)
         {
-            Skin s = Classic();
-            s.Name = "ClassicSharp";
+            s.Name = name;
             s.CornerRadius = 0;
             s.TileRadius = 0;
             s.CardRadius = 0;
-            s.BarStyle = "flat";
+            if (s.BarStyle == "pill") s.BarStyle = "flat";
             s.Sharp = true;
             return s;
         }
