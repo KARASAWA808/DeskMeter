@@ -185,7 +185,7 @@ namespace DeskMeter
                 lastDraw = now;
                 Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(delegate
                 {
-                    InvalidateAll();
+                    TickAll(false);
                     CheckAlerts();
                     UpdateTrayText();
                     if (!timer.IsEnabled) ScheduleNextTick();
@@ -193,7 +193,7 @@ namespace DeskMeter
             };
             timer.Tick += delegate
             {
-                InvalidateAll();
+                TickAll(true);   // 秒の変わり目: 時計だけ描き直す
                 ScheduleNextTick();
             };
             ScheduleNextTick();

@@ -40,11 +40,11 @@ namespace DeskMeter
             dc.DrawRoundedRectangle(bgCache, null, new Rect(0, 0, contentW, contentH), sk.CornerRadius, sk.CornerRadius);
         }
 
-        // 前のフレームのパネル矩形を使ってカードを敷く (配置はめったに変わらない)
+        // 直前に並べたパネルの矩形を使ってカードを敷く (配置が変わったら UpdatePanels が背景を描き直させる)
         void DrawCards(DrawingContext dc)
         {
             if (sk.CardBrush == null) return;
-            foreach (PanelBox b in prevBoxes)
+            foreach (PanelBox b in boxes)
             {
                 var r = new Rect(b.R.X - 7, b.R.Y - 5, b.R.Width + 14, b.R.Height + 10);
                 dc.DrawRoundedRectangle(sk.CardBrush, sk.CardBorder, r, sk.CardRadius, sk.CardRadius);

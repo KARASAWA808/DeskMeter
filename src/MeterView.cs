@@ -48,9 +48,29 @@ namespace DeskMeter
             areaBrushes.Clear();
             ringPens.Clear();
             ringTrack = null;
+            ClearTextPosCache();
             decorCache = null;
             bgCache = null;
         }
+
+        // パネルごとの子ビジュアル。計測のたびに全部を描き直すのではなく、中身か位置が変わったパネルだけ描き直す。
+        // 描き直さなかったパネルは WPF が前の描画結果をそのまま使うので、文字の組み直しもラスタライズも起きない。
+        // 重ね順: この要素自身 (背景・模様・カード) → パネル → overlay (マスコット・配置編集・走査線・枠)
+        sealed class PanelVisual
+        {
+            public readonly DrawingVisual V = new DrawingVisual();
+            public string Key;                 // 前に描いたときの内容のキー (null = 毎回描くパネル)
+            public double X = double.NaN, Y, EndY;
+            public bool Used, HasContent;
+        }
+
+        readonly VisualCollection kids;
+        readonly Dictionary<string, PanelVisual> panelVisuals = new Dictionary<string, PanelVisual>();
+        readonly DrawingVisual overlay = new DrawingVisual();
+        static readonly bool PanelSkipOff = Environment.GetEnvironmentVariable("DESKMETER_NO_PANELSKIP") == "1";   // 比較用
+
+        protected override int VisualChildrenCount { get { return kids.Count; } }
+        protected override Visual GetVisualChild(int index) { return kids[index]; }
 
         public MeterView(MeterState state, Settings cfg)
         {
@@ -58,6 +78,14 @@ namespace DeskMeter
             this.cfg = cfg;
             contentW = WidthNow();
             SnapsToDevicePixels = true;
+            kids = new VisualCollection(this);
+            foreach (string id in Settings.PanelIds)
+            {
+                var pv = new PanelVisual();
+                panelVisuals[id] = pv;
+                kids.Add(pv.V);
+            }
+            kids.Add(overlay);
             ApplySkin();
         }
 
@@ -496,14 +524,26 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- render
 
+        // 全体を描き直す (設定・スキン・大きさ・配置が変わったとき。InvalidateVisual で呼ばれる)
         protected override void OnRender(DrawingContext dc)
         {
             long pt0 = Profiler.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-            RenderCore(dc);
+            RenderBase(dc);
+            UpdatePanels(true, false);
             if (Profiler.Enabled) Profiler.Render(System.Diagnostics.Stopwatch.GetTimestamp() - pt0);
         }
 
-        void RenderCore(DrawingContext dc)
+        // 計測が終わるたびに呼ぶ: 変わったパネルだけ描き直す。clockOnly = 秒の変わり目 (計測値は変わっていないので時計だけ)
+        public void Tick(bool clockOnly)
+        {
+            if (cacheDip < 0 || PanelSkipOff) { InvalidateVisual(); return; }   // まだ一度も描いていない
+            long pt0 = Profiler.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            UpdatePanels(false, clockOnly);
+            if (Profiler.Enabled) Profiler.Render(System.Diagnostics.Stopwatch.GetTimestamp() - pt0);
+        }
+
+        // 背景の層 (この要素自身の描画内容)
+        void RenderBase(DrawingContext dc)
         {
             dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
             if (dip != cacheDip) { cacheDip = dip; ClearCaches(); }   // 文字の整形結果は DPI 込みなので作り直す
@@ -519,12 +559,41 @@ namespace DeskMeter
             DrawBackgroundImage(dc);
             DrawDecor(dc);
             DrawCards(dc);
+        }
 
+        // そのパネルの表示内容を表すキー。前回と同じなら描き直さない。null = 毎回変わるパネル (計測値やグラフ)
+        string PanelKey(string id)
+        {
+            switch (id)
+            {
+                case "calendar":
+                case "datetile":
+                case "notes":
+                    return DateTime.Today.ToString("yyyyMMdd", Inv);
+                case "weather":
+                    if (!cfg.WeatherEnabled) return "off";
+                    Weather w = st.Weather;
+                    if (w == null) return "none|" + (st.WeatherError ?? "");
+                    // 月齢 (0.1 刻み) も出しているので、数時間に 1 回は描き直す
+                    return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(w).ToString(Inv) + "|" + w.Updated.Ticks.ToString(Inv) + "|"
+                        + DateTime.Today.ToString("yyyyMMdd", Inv) + "|" + MoonAge(DateTime.UtcNow).ToString("0.0", Inv);
+                case "clock":
+                    // 秒を出していなければ分が変わるまで同じ
+                    return cfg.ClockSeconds ? null : DateTime.Now.ToString("yyyyMMddHHmm", Inv);
+                default:
+                    return null;
+            }
+        }
+
+        void UpdatePanels(bool force, bool clockOnly)
+        {
             const double top = 12;
             double x = Gap + (cfg.MascotPlacement == "left" ? sideExtra : 0), h = 0, y;
+            bool empty = false;
             prevBoxes.Clear();
             prevBoxes.AddRange(boxes);
             boxes.Clear();
+            foreach (PanelVisual pv in panelVisuals.Values) pv.Used = false;
             lock (st)
             {
                 List<List<string>> layout = SinglePanel != null ? SingleLayout() : cfg.Layout;
@@ -535,7 +604,18 @@ namespace DeskMeter
                     {
                         string id = layout[c][i];
                         double y0 = y;
-                        y = DrawPanel(dc, id, x, y);
+                        PanelVisual pv;
+                        if (!panelVisuals.TryGetValue(id, out pv)) continue;
+                        pv.Used = true;
+                        string key = PanelKey(id);
+                        bool need = force || !pv.HasContent || pv.X != x || pv.Y != y
+                            || (key == null ? (!clockOnly || id == "clock") : key != pv.Key);
+                        if (need)
+                        {
+                            using (DrawingContext pdc = pv.V.RenderOpen()) y = DrawPanel(pdc, id, x, y);
+                            pv.Key = key; pv.X = x; pv.Y = y0; pv.EndY = y; pv.HasContent = true;
+                        }
+                        else y = pv.EndY;
                         var box = new PanelBox();
                         box.Id = id;
                         box.Col = c;
@@ -547,26 +627,37 @@ namespace DeskMeter
                     h = Math.Max(h, y - PanelGap);
                     x += ColW + Gap;
                 }
-                if (h == 0)
+                if (h == 0) { empty = true; h = top + RowH * 2; }
+            }
+            // 配置から外れたパネルの描画内容は消す
+            foreach (PanelVisual pv in panelVisuals.Values)
+                if (!pv.Used && pv.HasContent) { pv.V.RenderOpen().Close(); pv.HasContent = false; pv.Key = null; pv.X = double.NaN; }
+
+            bool moved = BoxesChanged();
+            // カードは背景の層に敷いてあるので、配置が変わったら背景ごと描き直す
+            if (sk.CardBrush != null && moved) Dispatcher.BeginInvoke(new Action(InvalidateVisual));
+            if (force || moved || editMode || empty)
+            {
+                using (DrawingContext odc = overlay.RenderOpen())
                 {
-                    T(dc, "表示する項目がありません", Gap, top, FS, Gray);
-                    T(dc, "右クリック → 表示する項目", Gap, top + RowH, FS, Gray);
-                    h = top + RowH * 2;
+                    if (empty)
+                    {
+                        T(odc, "表示する項目がありません", Gap, top, FS, Gray);
+                        T(odc, "右クリック → 表示する項目", Gap, top + RowH, FS, Gray);
+                    }
+                    DrawMascot(odc);
+                    if (editMode) DrawEditOverlay(odc);
+                    if (Scanline != null) odc.DrawRectangle(Scanline, null, new Rect(0, 0, contentW, contentH));
+                    if (sk.Border != null) odc.DrawRoundedRectangle(null, sk.Border, new Rect(0.5, 0.5, contentW - 1, contentH - 1), sk.CornerRadius, sk.CornerRadius);
                 }
             }
-            // カードは前のフレームの矩形で敷いているので、配置が変わったフレームではもう 1 回描いて合わせる
-            if (sk.CardBrush != null && BoxesChanged()) Dispatcher.BeginInvoke(new Action(InvalidateVisual));
-            DrawMascot(dc);
-            if (editMode) DrawEditOverlay(dc);
-            if (Scanline != null)
- dc.DrawRectangle(Scanline, null, new Rect(0, 0, contentW, contentH));
-            if (sk.Border != null) dc.DrawRoundedRectangle(null, sk.Border, new Rect(0.5, 0.5, contentW - 1, contentH - 1), sk.CornerRadius, sk.CornerRadius);
             h = Math.Ceiling(h + 12 + (editMode ? editHintH : 0));   // 編集中は下端の案内の分だけ伸ばす
             if (Math.Abs(h - contentH) > 0.5)
             {
                 contentH = h;
                 Dispatcher.BeginInvoke(new Action(delegate { InvalidateMeasure(); InvalidateVisual(); }));
             }
+            TextCacheFrameEnd();
         }
 
         bool BoxesChanged()
@@ -594,7 +685,7 @@ namespace DeskMeter
             FormattedText ft;
             if (textCache.TryGetValue(key, out ft)) return ft;
             // 数値のように毎回変わる文字で際限なく増えないように、ある程度たまったら全部捨てる
-            if (textCache.Count >= 4000) textCache.Clear();
+            if (textCache.Count >= 4000) { textCache.Clear(); ClearTextPosCache(); }
             ft = new FormattedText(s, Ja, FlowDirection.LeftToRight, tf, size, b, dip);
             if (maxW > 0)
             {
@@ -660,7 +751,7 @@ namespace DeskMeter
         {
             dc.DrawRoundedRectangle(tile, null, new Rect(x, y, 36, 36), sk.TileRadius, sk.TileRadius);
             FormattedText icon = Cached(glyph, 20, White, TfIcon, 0);
-            dc.DrawText(icon, new Point(x + 18 - icon.Width / 2, y + 18 - icon.Height / 2));
+            DrawTextCached(dc, icon, new Point(x + 18 - icon.Width / 2, y + 18 - icon.Height / 2));
             T(dc, title, x + 46, y - 3, 15.5, White, 0, true);
             if (right != null) T(dc, right, x + ColW, y - 3, 15.5, White, 1, true);
         }
@@ -818,6 +909,12 @@ namespace DeskMeter
         static string Span(TimeSpan t)
         {
             return string.Format(Inv, "{0}d {1}h {2:00}m {3:00}s", (int)t.TotalDays, t.Hours, t.Minutes, t.Seconds);
+        }
+
+        // 秒なし (時計の秒を出さない設定のとき。時計パネルは分が変わるまで描き直さない)
+        static string SpanMin(TimeSpan t)
+        {
+            return string.Format(Inv, "{0}d {1}h {2:00}m", (int)t.TotalDays, t.Hours, t.Minutes);
         }
 
         // ---------------------------------------------------------------- GPU
@@ -1149,9 +1246,10 @@ namespace DeskMeter
             y = DrawWorldClocks(dc, x, y, now);
             Sep(dc, x, y);
             y += 6;
-            y = KeyValue(dc, x, y, "Uptime:", Orange, Span(TimeSpan.FromMilliseconds(Native.GetTickCount64())), Orange);
+            TimeSpan up = TimeSpan.FromMilliseconds(Native.GetTickCount64());
+            y = KeyValue(dc, x, y, "Uptime:", Orange, cfg.ClockSeconds ? Span(up) : SpanMin(up), Orange);
             DateTime newYear = new DateTime(now.Year + 1, 1, 1);
-            y = KeyValue(dc, x, y, (now.Year + 1).ToString(Inv) + "年まで:", Cyan, Span(newYear - now), Red);
+            y = KeyValue(dc, x, y, (now.Year + 1).ToString(Inv) + "年まで:", Cyan, cfg.ClockSeconds ? Span(newYear - now) : SpanMin(newYear - now), Red);
             Sep(dc, x, y + 4);
             return y + 12;
         }

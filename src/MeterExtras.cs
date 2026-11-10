@@ -35,11 +35,85 @@ namespace DeskMeter
             return shadowBrush;
         }
 
-        // 上下左右 1px にずらして描き、縁取りにする。
-        // (輪郭のジオメトリを 1 回なぞる方式も試したが、ソフトウェア描画では線のラスタライズが重く、全体の CPU 時間はこちらのほうが少ない)
+        // ---------------------------------------------------------------- 文字の描画のキャッシュ
+        //
+        // FormattedText は DrawText のたびに行の組み直し (TextFormatter) をやり直すので、ラベルのように毎フレーム同じ場所に
+        // 同じ文字を描くものが描画時間の大半を占めていた。同じ文字が同じ位置に 2 回続けて来たら、組み終えた結果 (グリフの並び) を
+        // Drawing として持っておき、以後はそれを貼るだけにする。数値のように変わる文字は 1 回目なので従来どおり直接描く。
+
+        struct TextPos : IEquatable<TextPos>
+        {
+            public FormattedText Ft;
+            public double X, Y;
+            public bool Shadow;
+            public bool Equals(TextPos o) { return ReferenceEquals(Ft, o.Ft) && X == o.X && Y == o.Y && Shadow == o.Shadow; }
+            public override bool Equals(object o) { return o is TextPos && Equals((TextPos)o); }
+            public override int GetHashCode() { return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Ft) ^ (X.GetHashCode() * 397) ^ (Y.GetHashCode() * 7919) ^ (Shadow ? 1 : 0); }
+        }
+
+        // 2 世代で持つ: 使われたものは今の世代に残り、使われなくなったもの (過ぎた数値) は世代交代で捨てられる。値が null = 1 回見ただけ
+        Dictionary<TextPos, Drawing> posCur = new Dictionary<TextPos, Drawing>(1024), posPrev = new Dictionary<TextPos, Drawing>(1024);
+        int posFrames;
+        static readonly bool TextCacheOff = Environment.GetEnvironmentVariable("DESKMETER_NO_TEXTCACHE") == "1";   // 比較用
+
+        // 1 フレーム描き終えるごとに呼ぶ
+        void TextCacheFrameEnd()
+        {
+            if (++posFrames < 20 && posCur.Count < 4000) return;
+            posFrames = 0;
+            Dictionary<TextPos, Drawing> t = posPrev;
+            posPrev = posCur;
+            t.Clear();
+            posCur = t;
+        }
+
+        void ClearTextPosCache()
+        {
+            posCur.Clear();
+            posPrev.Clear();
+        }
+
+        // 縁取りなしで 1 つ描く (見出しのアイコンなど)
+        void DrawTextCached(DrawingContext dc, FormattedText ft, Point p)
+        {
+            DrawTextPos(dc, ft, p, null, false);
+        }
+
         void DrawTextWithShadow(DrawingContext dc, FormattedText ft, Point p, Brush fg)
         {
-            if (ShadowOn())
+            DrawTextPos(dc, ft, p, fg, ShadowOn());
+        }
+
+        void DrawTextPos(DrawingContext dc, FormattedText ft, Point p, Brush fg, bool shadow)
+        {
+            if (TextCacheOff) { DrawTextDirect(dc, ft, p, fg, shadow); return; }
+            var k = new TextPos();
+            k.Ft = ft; k.X = p.X; k.Y = p.Y; k.Shadow = shadow;
+            Drawing d;
+            bool seen = posCur.TryGetValue(k, out d);
+            if (!seen && posPrev.TryGetValue(k, out d)) { seen = true; posCur[k] = d; }
+            if (!seen)
+            {
+                posCur[k] = null;
+                DrawTextDirect(dc, ft, p, fg, shadow);
+                return;
+            }
+            if (d == null)
+            {
+                var dg = new DrawingGroup();
+                using (DrawingContext c = dg.Open()) DrawTextDirect(c, ft, p, fg, shadow);
+                dg.Freeze();
+                d = dg;
+                posCur[k] = d;
+            }
+            dc.DrawDrawing(d);
+        }
+
+        // 上下左右 1px にずらして描き、縁取りにする。
+        // (輪郭のジオメトリを 1 回なぞる方式も試したが、ソフトウェア描画では線のラスタライズが重く、全体の CPU 時間はこちらのほうが少ない)
+        void DrawTextDirect(DrawingContext dc, FormattedText ft, Point p, Brush fg, bool shadow)
+        {
+            if (shadow)
             {
                 ft.SetForegroundBrush(ShadowBrush());
                 dc.DrawText(ft, new Point(p.X + 1, p.Y));

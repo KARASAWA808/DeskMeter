@@ -38,6 +38,13 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- まとめて適用
 
+        // 計測のたび / 秒の変わり目の描き直し (変わったパネルだけ)。設定が変わったときは InvalidateAll で全部描き直す
+        void TickAll(bool clockOnly)
+        {
+            view.Tick(clockOnly);
+            foreach (PanelWindow f in floats) f.View.Tick(clockOnly);
+        }
+
         void InvalidateAll()
         {
             view.InvalidateVisual();
