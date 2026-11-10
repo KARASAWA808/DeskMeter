@@ -2,6 +2,11 @@
 
 各版の zip と SHA-256 は [Releases](../../releases) にあります。
 
+## 未リリース
+
+- Classic / Classic Sharp の日付タイルの数字を、細字から Bahnschrift (DIN 系) の太字にしました。自作スキンでは `DateTileFont` / `DateTileWeight` で指定できます (省略時は従来どおりスキンの書体の細字)。
+- `--snapshot` の PNG を等倍で撮るようにしました。枠線が外に 0.1 px はみ出すスキン (Cyberpunk) では全体がわずかに縮小されて縁がにじんでいました。画面の表示には影響ありません。
+
 ## v0.3.13 (2026-11-10)
 
 ### 負荷

@@ -1660,7 +1660,7 @@ namespace DeskMeter
                 {
                     dc.DrawRectangle(Brushes.Black, null, new Rect(0, 0, w, h));
                     dc.PushTransform(new ScaleTransform(s, s));
-                    dc.DrawRectangle(new VisualBrush(view), null, new Rect(0, 0, view.ActualWidth, view.ActualHeight));
+                    dc.DrawRectangle(MeterView.SnapshotBrush(view, s), null, new Rect(0, 0, view.ActualWidth, view.ActualHeight));
                     dc.Pop();
                 }
                 var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);

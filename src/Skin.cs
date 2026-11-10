@@ -15,6 +15,9 @@ namespace DeskMeter
         public string Name;
         public int Warnings;             // skins\*.json から読んだときに見つかった問題の数 (組み込みは 0)
         public string FontFamily = "Segoe UI, Yu Gothic UI, Meiryo UI";
+        // 日付タイルの大きな数字の書体と太さ。DateTileFont が null なら FontFamily、太さは light / normal / semibold / bold
+        public string DateTileFont;
+        public string DateTileWeight = "light";
         public double CornerRadius = 10;
         public Color Background = Hex("#08090C");
         public Pen Border;             // ウィンドウ外枠 (null なら無し)
@@ -186,6 +189,8 @@ namespace DeskMeter
         public class SkinFile
         {
             public string FontFamily;
+            public string DateTileFont;     // 日付タイルの数字の書体 (無指定なら FontFamily)
+            public string DateTileWeight;   // light / normal / semibold / bold (既定 light)
             public double? CornerRadius;
             public string Background;
             public string BorderColor;      // 無指定なら枠なし
@@ -215,6 +220,7 @@ namespace DeskMeter
 
         // 壊れた JSON は deskmeter.log に書いて null を返す。色の書き間違いは項目ごとに Classic の値で代用する
         static readonly string[] BarStyles = { "flat", "pill", "segment" };
+        static readonly string[] Weights = { "light", "normal", "semibold", "bold" };
         static readonly string[] Decors = { "", "sakura", "hearts", "stars", "bubbles", "grid", "rain", "dots", "lines" };
         static readonly string[] Mascots = { "", "cat", "bunny", "bear" };
 
@@ -284,6 +290,15 @@ namespace DeskMeter
                     foreach (string key in raw.Keys)
                         if (!key.StartsWith("_") && typeof(SkinFile).GetField(key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase) == null) ctx.Warn(key, "知らないキーです (綴りを確認してください)");   // 大文字小文字の違いは読み込みと同じく許す   // "_comment" などメモ用のキーは許す
                 }
+                // 日付タイルの数字は、自作スキンでは従来どおり (スキンの書体の細字) を既定にする。Classic の Bahnschrift は引き継がない
+                s.DateTileFont = null;
+                s.DateTileWeight = "light";
+                if (!string.IsNullOrWhiteSpace(f.DateTileFont))
+                {
+                    s.DateTileFont = f.DateTileFont.Trim();
+                    if (!FontInstalled(s.DateTileFont)) ctx.Warn("DateTileFont", "\"" + s.DateTileFont + "\" はこの PC に入っていないので既定のフォントで表示します");
+                }
+                s.DateTileWeight = Choice(ctx, "DateTileWeight", f.DateTileWeight, Weights, s.DateTileWeight);
                 if (!string.IsNullOrWhiteSpace(f.FontFamily))
                 {
                     s.FontFamily = f.FontFamily.Trim();
@@ -414,6 +429,7 @@ namespace DeskMeter
             s.GraphBorder = P(B("#30353B"), 1); s.GraphGrid = P(B("#1C2025"), 1);
             s.CalHead = B("#1D4A2A"); s.Today = B("#F26A1B"); s.CalSun = s.Danger; s.CalSat = s.Blue;
             s.DateTile = Gradient("#FF8A2A", "#D9480F"); s.DateTileText = s.Title;
+            s.DateTileFont = "Bahnschrift, Segoe UI"; s.DateTileWeight = "bold";   // 日付の数字は DIN 系の太字 (Windows 10 1709 以降に標準。無ければ Segoe UI の太字)
             s.Sun = B("#FFC93C"); s.CloudLight = B("#D5DAE0"); s.CloudDark = B("#8C949E"); s.Rain = B("#5CC8FF");
             s.Snow = s.Title; s.MoonLit = B("#EDE9D6"); s.MoonDark = B("#2B2F36");
             s.Palette = Brushes("#7ED957", "#F2E205", "#FF9F1A", "#F0505A", "#E06BE0", "#A98BFF", "#4C8DFF",

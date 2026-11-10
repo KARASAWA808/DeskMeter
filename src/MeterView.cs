@@ -27,7 +27,8 @@ namespace DeskMeter
 
         // 以下はすべて ApplySkin() で現在のスキンから設定される
         Skin sk;
-        Typeface TfN, TfB, TfL;
+        Typeface TfN, TfB, TfL, TfDay;
+        bool dayCustom;   // 日付タイルの数字がスキンの既定 (細字) と違う
         Brush White, Yellow, Orange, Cyan, Green, Lime, Red, Gray, Dim, Magenta, Violet, Blue, Track, GraphBg,
             TileGreen, TileBlue, TileTeal, TileSlate, TilePurple, TileRose, CalHead, TodayOrange, TileGradient,
             SunBrush, CloudLight, CloudDark, RainBrush, SnowBrush, MoonLit, MoonDark, Scanline;
@@ -68,6 +69,17 @@ namespace DeskMeter
         readonly Dictionary<string, PanelVisual> panelVisuals = new Dictionary<string, PanelVisual>();
         readonly DrawingVisual overlay = new DrawingVisual();
         static readonly bool PanelSkipOff = Environment.GetEnvironmentVariable("DESKMETER_NO_PANELSKIP") == "1";   // 比較用
+
+        // スナップショット用のブラシ。既定の VisualBrush は描画内容の外接矩形を貼る先に引き伸ばすので、枠線が 0.1 px でも外に出ていると
+        // 全体がわずかに縮小されて縁がにじむ。要素の矩形をそのまま等倍で写す
+        public static VisualBrush SnapshotBrush(FrameworkElement v, double scale)
+        {
+            var b = new VisualBrush(v);
+            b.ViewboxUnits = BrushMappingMode.Absolute;
+            b.Viewbox = new Rect(0, 0, v.ActualWidth * scale, v.ActualHeight * scale);   // ブラシの中では LayoutTransform (倍率) が掛かった大きさ
+            b.Stretch = Stretch.Fill;
+            return b;
+        }
 
         protected override int VisualChildrenCount { get { return kids.Count; } }
         protected override Visual GetVisualChild(int index) { return kids[index]; }
@@ -487,6 +499,9 @@ namespace DeskMeter
             TfN = new Typeface(font, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
             TfB = new Typeface(font, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
             TfL = new Typeface(font, FontStyles.Normal, FontWeights.Light, FontStretches.Normal);
+            dayCustom = sk.DateTileFont != null || sk.DateTileWeight != "light";
+            FontWeight dw = sk.DateTileWeight == "bold" ? FontWeights.Bold : sk.DateTileWeight == "semibold" ? FontWeights.SemiBold : sk.DateTileWeight == "normal" ? FontWeights.Normal : FontWeights.Light;
+            TfDay = dayCustom ? new Typeface(sk.DateTileFont != null ? new FontFamily(sk.DateTileFont) : font, FontStyles.Normal, dw, FontStretches.Normal) : TfL;
             White = sk.Title; Yellow = sk.Text1; Orange = sk.Accent2; Cyan = sk.Text2; Green = sk.Accent1; Lime = sk.Lime;
             Red = sk.Danger; Gray = sk.Muted; Dim = sk.Dim; Magenta = sk.Magenta; Violet = sk.Violet; Blue = sk.Blue;
             Track = sk.Track; GraphBg = sk.GraphBg;
@@ -1369,8 +1384,15 @@ namespace DeskMeter
             const double th = 158;
             dc.DrawRoundedRectangle(TileGradient, null, new Rect(x, y, ColW, th), R(4), R(4));
             T(dc, today.ToString("dddd", Ja), x + ColW / 2, y + 8, 17, sk.DateTileText, 2);
-            FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfL);
-            dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, y + 18));
+            FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfDay);
+            double dy = y + 18;
+            if (dayCustom)
+            {
+                // 書体ごとに字面の位置が違うので、数字の上下中央を曜日と年月の間 (タイルの上から 82) に合わせる
+                double cap = TfDay.CapsHeight * 88;
+                dy = y + 82 - cap / 2 - (day.Baseline - cap);
+            }
+            dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, dy));
             T(dc, today.ToString("yyyy年 M月", Ja), x + ColW / 2, y + th - 28, 15, sk.DateTileText, 2);
             return y + th;
         }
