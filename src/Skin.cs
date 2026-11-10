@@ -79,7 +79,14 @@ namespace DeskMeter
             return r;
         }
 
-        public static readonly string[] BuiltIn = { "Classic", "ClassicSharp", "Cyberpunk", "CyberpunkSharp", "Retro", "RetroSharp", "Light", "KawaiiPink", "KawaiiMint", "Synthwave", "Matrix", "Nord", "Dracula", "Frost", "Notebook" };
+        // メニューに並ぶ順。基本とその角なし / ダーク配色 / 世界観のあるもの / 明るい・かわいいもの
+        public static readonly string[] BuiltIn = {
+            "Classic", "ClassicSharp", "Cyberpunk", "CyberpunkSharp", "Retro", "RetroSharp",
+            "Nord", "Dracula", "TokyoNight", "Gruvbox", "Mocha", "NoirGold", "HighContrast",
+            "Synthwave", "Matrix", "Blueprint", "Pocket", "Yozakura", "Aurora", "Frost",
+            "Light", "Mono", "Notebook", "KawaiiPink", "KawaiiMint" };
+        // この名前の前で、スキンのメニューに区切り線を入れる
+        public static readonly string[] GroupStarts = { "Nord", "Synthwave", "Light" };
 
         // 組み込み + skins フォルダーのスキン名 (呼ぶたびにフォルダーを見直す)
         public static string[] Names
@@ -146,6 +153,16 @@ namespace DeskMeter
                 case "Dracula": return "Dracula (紫と桃)";
                 case "Frost": return "Frost (すりガラス)";
                 case "Notebook": return "Notebook (紙のノート)";
+                case "TokyoNight": return "Tokyo Night (紺の夜景)";
+                case "Gruvbox": return "Gruvbox (暖色レトロ)";
+                case "Mocha": return "Mocha (ダークパステル)";
+                case "NoirGold": return "Noir Gold (黒と金)";
+                case "HighContrast": return "High Contrast (見やすさ優先)";
+                case "Blueprint": return "Blueprint (設計図)";
+                case "Pocket": return "Pocket (携帯ゲーム機の液晶)";
+                case "Yozakura": return "Yozakura (夜桜)";
+                case "Aurora": return "Aurora (オーロラ)";
+                case "Mono": return "Mono (白黒と赤)";
                 default: return name;
             }
         }
@@ -169,6 +186,16 @@ namespace DeskMeter
                 case "Dracula": return Dracula();
                 case "Frost": return Frost();
                 case "Notebook": return Notebook();
+                case "TokyoNight": return TokyoNight();
+                case "Gruvbox": return Gruvbox();
+                case "Mocha": return Mocha();
+                case "NoirGold": return NoirGold();
+                case "HighContrast": return HighContrast();
+                case "Blueprint": return Blueprint();
+                case "Pocket": return Pocket();
+                case "Yozakura": return Yozakura();
+                case "Aurora": return Aurora();
+                case "Mono": return Mono();
             }
             // 組み込みに無ければ skins\<名前>.json。読めなければ Classic
             if (!string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
@@ -221,7 +248,7 @@ namespace DeskMeter
         // 壊れた JSON は deskmeter.log に書いて null を返す。色の書き間違いは項目ごとに Classic の値で代用する
         static readonly string[] BarStyles = { "flat", "pill", "segment" };
         static readonly string[] Weights = { "light", "normal", "semibold", "bold" };
-        static readonly string[] Decors = { "", "sakura", "hearts", "stars", "bubbles", "grid", "rain", "dots", "lines" };
+        static readonly string[] Decors = { "", "sakura", "hearts", "stars", "bubbles", "grid", "rain", "dots", "lines", "squares" };
         static readonly string[] Mascots = { "", "cat", "bunny", "bear" };
 
         // 選択肢から選ぶ項目。候補に無い値はログに残して既定のまま
@@ -429,7 +456,7 @@ namespace DeskMeter
             s.GraphBorder = P(B("#30353B"), 1); s.GraphGrid = P(B("#1C2025"), 1);
             s.CalHead = B("#1D4A2A"); s.Today = B("#F26A1B"); s.CalSun = s.Danger; s.CalSat = s.Blue;
             s.DateTile = Gradient("#FF8A2A", "#D9480F"); s.DateTileText = s.Title;
-            s.DateTileFont = "Bahnschrift, Segoe UI"; s.DateTileWeight = "bold";   // 日付の数字は DIN 系の太字 (Windows 10 1709 以降に標準。無ければ Segoe UI の太字)
+            s.DateTileFont = "Bahnschrift, Segoe UI"; s.DateTileWeight = "semibold";   // 日付の数字は DIN 系のやや太字 (Windows 10 1709 以降に標準。無ければ Segoe UI の太字)
             s.Sun = B("#FFC93C"); s.CloudLight = B("#D5DAE0"); s.CloudDark = B("#8C949E"); s.Rain = B("#5CC8FF");
             s.Snow = s.Title; s.MoonLit = B("#EDE9D6"); s.MoonDark = B("#2B2F36");
             s.Palette = Brushes("#7ED957", "#F2E205", "#FF9F1A", "#F0505A", "#E06BE0", "#A98BFF", "#4C8DFF",

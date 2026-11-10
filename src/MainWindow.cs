@@ -618,7 +618,11 @@ namespace DeskMeter
         void FillSkinMenu()
         {
             miSkin.DropDownItems.Clear();
-            foreach (string name in Skin.BuiltIn) miSkin.DropDownItems.Add(SkinItem(name));
+            foreach (string name in Skin.BuiltIn)
+            {
+                if (Array.IndexOf(Skin.GroupStarts, name) >= 0) miSkin.DropDownItems.Add(new WF.ToolStripSeparator());
+                miSkin.DropDownItems.Add(SkinItem(name));
+            }
             string[] files = Skin.FileNames();
             if (files.Length > 0)
             {

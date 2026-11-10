@@ -111,6 +111,7 @@ namespace DeskMeter
                 case "grid": DecorGrid(dc, c); break;
                 case "rain": DecorRain(dc, rnd, c); break;
                 case "lines": DecorLines(dc, c); break;
+                case "squares": DecorSquares(dc, c); break;
             }
             dc.Pop();
         }
@@ -280,6 +281,22 @@ namespace DeskMeter
             var red = new Pen(Alpha(Color.FromRgb(224, 86, 75), 70), 1);
             red.Freeze();
             dc.DrawLine(red, new Point(Gap - 4.5, 4), new Point(Gap - 4.5, contentH - 4));
+        }
+
+        // 設計図: 方眼。細い線を 12px おき、5 本ごとに少し濃い線
+        void DecorSquares(DrawingContext dc, Color c)
+        {
+            var thin = new Pen(Alpha(c, 22), 1);
+            thin.Freeze();
+            var bold = new Pen(Alpha(c, 50), 1);
+            bold.Freeze();
+            const double step = 12;
+            int i = 0;
+            for (double x = step; x < contentW; x += step)
+                dc.DrawLine(++i % 5 == 0 ? bold : thin, new Point(Math.Round(x) + 0.5, 0), new Point(Math.Round(x) + 0.5, contentH));
+            i = 0;
+            for (double y = step; y < contentH; y += step)
+                dc.DrawLine(++i % 5 == 0 ? bold : thin, new Point(0, Math.Round(y) + 0.5), new Point(contentW, Math.Round(y) + 0.5));
         }
 
         // ---------------------------------------------------------------- マスコット

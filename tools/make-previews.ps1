@@ -1,6 +1,6 @@
 ﻿# README 用のスキンのプレビュー (previews\<スキン名>.png) を撮り直す。
 # 作業用のフォルダーに exe・skins・help を複製して動かすので、手元の settings.json は触らない。
-#   powershell -ExecutionPolicy Bypass -File tools\make-previews.ps1            # 組み込み 15 種 + skins\example-*.json
+#   powershell -ExecutionPolicy Bypass -File tools\make-previews.ps1            # 組み込み 25 種 + skins\example-*.json
 #   powershell -ExecutionPolicy Bypass -File tools\make-previews.ps1 Nord Frost # 指定したものだけ
 # 透明モードや配置プリセット、マスコット画像、切り離しなどの特別なプレビューは撮り直さない (そのときの設定が要るため)。
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Skins)
@@ -16,7 +16,8 @@ Copy-Item (Join-Path $root 'skins') (Join-Path $stage 'skins') -Recurse
 Copy-Item (Join-Path $root 'help') (Join-Path $stage 'help') -Recurse
 
 if (-not $Skins) {
-    $Skins = @('Classic', 'ClassicSharp', 'Cyberpunk', 'CyberpunkSharp', 'Retro', 'RetroSharp', 'Dracula', 'Frost', 'KawaiiMint', 'KawaiiPink', 'Light', 'Matrix', 'Nord', 'Notebook', 'Synthwave')
+    $Skins = @('Classic', 'ClassicSharp', 'Cyberpunk', 'CyberpunkSharp', 'Retro', 'RetroSharp', 'Dracula', 'Frost', 'KawaiiMint', 'KawaiiPink', 'Light', 'Matrix', 'Nord', 'Notebook', 'Synthwave',
+        'TokyoNight', 'Gruvbox', 'Mocha', 'NoirGold', 'HighContrast', 'Blueprint', 'Pocket', 'Yozakura', 'Aurora', 'Mono')
     $Skins += Get-ChildItem (Join-Path $root 'skins') -Filter 'example-*.json' | ForEach-Object { $_.BaseName }
 }
 $utf8 = New-Object Text.UTF8Encoding($false)

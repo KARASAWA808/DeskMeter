@@ -757,8 +757,12 @@ namespace DeskMeter
 
         double KeyValue(DrawingContext dc, double x, double y, string key, Brush keyBrush, string value, Brush valueBrush)
         {
-            T(dc, key, x, y, FS, keyBrush);
-            T(dc, value, x + ColW, y, FS, valueBrush, 1);
+            double vw = T(dc, value, x + ColW, y, FS, valueBrush, 1);
+            if (string.IsNullOrEmpty(key)) return y + RowH;
+            // 幅の広い書体 (等幅のスキンなど) で見出しが値に重なるときだけ、見出しを省略記号で切る
+            FormattedText kf = Cached(key, FS, keyBrush, TfN, 0);
+            if (kf.Width > ColW - vw - 6) kf = Cached(key, FS, keyBrush, TfN, Math.Max(24, ColW - vw - 6));
+            DrawTextWithShadow(dc, kf, new Point(x, y), keyBrush);
             return y + RowH;
         }
 
@@ -1383,19 +1387,28 @@ namespace DeskMeter
             DateTime today = DateTime.Today;
             const double th = 158;
             dc.DrawRoundedRectangle(TileGradient, null, new Rect(x, y, ColW, th), R(4), R(4));
-            T(dc, today.ToString("dddd", Ja), x + ColW / 2, y + 8, 17, sk.DateTileText, 2);
+            string wd = today.ToString("dddd", Ja), ym = today.ToString("yyyy年 M月", Ja);
             FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfDay);
-            double dy = y + 18;
+            double wy = y + 8, dy = y + 18, my = y + th - 28;
             if (dayCustom)
             {
-                // 書体ごとに字面の位置が違うので、数字の上下中央を曜日と年月の間 (タイルの上から 82) に合わせる
-                double cap = TfDay.CapsHeight * 88;
-                dy = y + 82 - cap / 2 - (day.Baseline - cap);
+                // 書体ごとに字面 (実際に塗られる範囲) の位置が違うので、測って置く。
+                // 曜日の上と年月の下の余白をそろえ、数字は曜日と年月のちょうど間に来るようにする
+                FormattedText wf = Cached(wd, 17, sk.DateTileText, TfN, 0), mf = Cached(ym, 15, sk.DateTileText, TfN, 0);
+                double shift = Math.Round(((y + th - my - InkBottom(mf)) - (wy - y + InkTop(wf))) / 2);
+                wy += shift; my += shift;
+                double mid = (wy + InkBottom(wf) + my + InkTop(mf)) / 2;
+                dy = Math.Round(mid - (InkTop(day) + InkBottom(day)) / 2);
             }
+            T(dc, wd, x + ColW / 2, wy, 17, sk.DateTileText, 2);
             dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, dy));
-            T(dc, today.ToString("yyyy年 M月", Ja), x + ColW / 2, y + th - 28, 15, sk.DateTileText, 2);
+            T(dc, ym, x + ColW / 2, my, 15, sk.DateTileText, 2);
             return y + th;
         }
+
+        // 文字の字面の上端と下端 (行の上端からの距離)
+        static double InkTop(FormattedText ft) { return ft.Height + ft.OverhangAfter - ft.Extent; }
+        static double InkBottom(FormattedText ft) { return ft.Height + ft.OverhangAfter; }
 
         // ---------------------------------------------------------------- weather
 

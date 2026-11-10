@@ -24,7 +24,7 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 
 ## 見た目のカスタマイズ
 
-- **スキン** 15 種（Classic / Cyberpunk / Retro と、その角丸なしの Sharp 版 / Light / Kawaii Pink / Kawaii Mint / Synthwave / Matrix / Nord / Dracula / Frost / Notebook）。`skins\*.json` で自作もできます（`help\custom-skin.html`）。
+- **スキン** 25 種。基本の Classic / Cyberpunk / Retro と、その角丸なしの Sharp 版。ダーク配色の Nord / Dracula / Tokyo Night / Gruvbox / Mocha / Noir Gold / High Contrast。世界観のある Synthwave / Matrix / Blueprint / Pocket / Yozakura / Aurora / Frost。明るい Light / Mono / Notebook / Kawaii Pink / Kawaii Mint。`skins\*.json` で自作もできます（`help\custom-skin.html`）。
 - **配置の編集**: 右クリック →「配置の編集」でパネルをドラッグして並べ替え。列は最大 6 つ。画面に収まらない移動は元に戻され、「配置を元に戻す」で直前の移動を取り消せます。
 - **パネルの切り離し**: パネルごとに独立ウィンドウにして、別モニターにも置けます。
 - **配置プリセット** と **テーマ**（スキン・配置・画像などの一式を保存・切替）。
@@ -34,6 +34,14 @@ Rainmeter 風の、デスクトップ常駐リソースモニターです。Wind
 | Kawaii Pink | Synthwave | Frost |
 | --- | --- | --- |
 | ![](previews/KawaiiPink.png) | ![](previews/Synthwave.png) | ![](previews/Frost.png) |
+
+| Yozakura（夜桜） | Blueprint（設計図） | Noir Gold（黒と金） |
+| --- | --- | --- |
+| ![](previews/Yozakura.png) | ![](previews/Blueprint.png) | ![](previews/NoirGold.png) |
+
+| Tokyo Night | Pocket（携帯ゲーム機の液晶） | Mono（白黒と赤） |
+| --- | --- | --- |
+| ![](previews/TokyoNight.png) | ![](previews/Pocket.png) | ![](previews/Mono.png) |
 
 | 透明モード + リングゲージ | 配置プリセット「ダッシュボード」 | マスコット画像（右に並べる） |
 | --- | --- | --- |
