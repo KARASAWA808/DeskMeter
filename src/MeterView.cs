@@ -28,7 +28,8 @@ namespace DeskMeter
         // 以下はすべて ApplySkin() で現在のスキンから設定される
         Skin sk;
         Typeface TfN, TfB, TfL, TfDay;
-        bool dayCustom;   // 日付タイルの数字がスキンの既定 (細字) と違う
+        Brush IconInk, TodayInk;             // 見出しアイコン / カレンダーの「今日」の文字の色
+        Dictionary<Brush, Brush> textMap;    // 文字として描くときの色の読み替え (Skin.TextMap)
         Brush White, Yellow, Orange, Cyan, Green, Lime, Red, Gray, Dim, Magenta, Violet, Blue, Track, GraphBg,
             TileGreen, TileBlue, TileTeal, TileSlate, TilePurple, TileRose, CalHead, TodayOrange, TileGradient,
             SunBrush, CloudLight, CloudDark, RainBrush, SnowBrush, MoonLit, MoonDark, Scanline;
@@ -499,9 +500,10 @@ namespace DeskMeter
             TfN = new Typeface(font, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
             TfB = new Typeface(font, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
             TfL = new Typeface(font, FontStyles.Normal, FontWeights.Light, FontStretches.Normal);
-            dayCustom = sk.DateTileFont != null || sk.DateTileWeight != "light";
+            bool dayCustom = sk.DateTileFont != null || sk.DateTileWeight != "light";
             FontWeight dw = sk.DateTileWeight == "bold" ? FontWeights.Bold : sk.DateTileWeight == "semibold" ? FontWeights.SemiBold : sk.DateTileWeight == "normal" ? FontWeights.Normal : FontWeights.Light;
             TfDay = dayCustom ? new Typeface(sk.DateTileFont != null ? new FontFamily(sk.DateTileFont) : font, FontStyles.Normal, dw, FontStretches.Normal) : TfL;
+            textMap = sk.TextMap; IconInk = sk.TileIcon ?? sk.Title; TodayInk = sk.TodayText ?? sk.Title;
             White = sk.Title; Yellow = sk.Text1; Orange = sk.Accent2; Cyan = sk.Text2; Green = sk.Accent1; Lime = sk.Lime;
             Red = sk.Danger; Gray = sk.Muted; Dim = sk.Dim; Magenta = sk.Magenta; Violet = sk.Violet; Blue = sk.Blue;
             Track = sk.Track; GraphBg = sk.GraphBg;
@@ -685,14 +687,22 @@ namespace DeskMeter
 
         // ---------------------------------------------------------------- primitives
 
+        // 文字として描くときの色。スキンが読み替えを持っていればそれを使う (バーなどの塗りは元の色のまま)
+        Brush Ink(Brush b)
+        {
+            Brush r;
+            return textMap != null && textMap.TryGetValue(b, out r) ? r : b;
+        }
+
         FormattedText Make(string s, double size, Brush b, Typeface tf)
         {
-            return new FormattedText(s, Ja, FlowDirection.LeftToRight, tf, size, b, dip);
+            return new FormattedText(s, Ja, FlowDirection.LeftToRight, tf, size, Ink(b), dip);
         }
 
         // 文字の整形 (FormattedText の生成) は描画の中でいちばん重いので、同じ文字・大きさ・色の組は使い回す
         FormattedText Cached(string s, double size, Brush b, Typeface tf, double maxW)
         {
+            b = Ink(b);
             int bid;
             if (!brushIds.TryGetValue(b, out bid)) { bid = brushIds.Count; brushIds[b] = bid; }
             string face = ReferenceEquals(tf, TfN) ? "N" : ReferenceEquals(tf, TfB) ? "B" : ReferenceEquals(tf, TfL) ? "L" : "I";
@@ -769,7 +779,7 @@ namespace DeskMeter
         void Header(DrawingContext dc, double x, double y, string glyph, Brush tile, string title, string right)
         {
             dc.DrawRoundedRectangle(tile, null, new Rect(x, y, 36, 36), sk.TileRadius, sk.TileRadius);
-            FormattedText icon = Cached(glyph, 20, White, TfIcon, 0);
+            FormattedText icon = Cached(glyph, 20, IconInk, TfIcon, 0);
             DrawTextCached(dc, icon, new Point(x + 18 - icon.Width / 2, y + 18 - icon.Height / 2));
             T(dc, title, x + 46, y - 3, 15.5, White, 0, true);
             if (right != null) T(dc, right, x + ColW, y - 3, 15.5, White, 1, true);
@@ -1314,7 +1324,7 @@ namespace DeskMeter
             for (int i = 0; i < 7; i++)
             {
                 dc.DrawRectangle(i == dow ? TodayOrange : CalHead, null, new Rect(x + i * cw + 1, y, cw - 2, 20));
-                T(dc, names[i], x + i * cw + cw / 2, y + 2.5, 12.5, White, 2);   // 20 px の帯の中で上下中央に (文字の行の高さは約 17 px)
+                T(dc, names[i], x + i * cw + cw / 2, y + 2.5, 12.5, i == dow ? TodayInk : White, 2);   // 20 px の帯の中で上下中央に (文字の行の高さは約 17 px)
             }
             y += 24;
             DateTime first = new DateTime(today.Year, today.Month, 1);
@@ -1328,7 +1338,7 @@ namespace DeskMeter
                     if (d == today)
                     {
                         dc.DrawRectangle(TodayOrange, null, new Rect(x + c * cw + 3, cy, cw - 6, ch - 2));
-                        T(dc, d.Day.ToString(Inv), cx, cy + 1, 13.5, White, 2, true);
+                        T(dc, d.Day.ToString(Inv), cx, cy + 1, 13.5, TodayInk, 2, true);
                     }
                     else
                     {
@@ -1389,17 +1399,14 @@ namespace DeskMeter
             dc.DrawRoundedRectangle(TileGradient, null, new Rect(x, y, ColW, th), R(4), R(4));
             string wd = today.ToString("dddd", Ja), ym = today.ToString("yyyy年 M月", Ja);
             FormattedText day = Make(today.Day.ToString(Inv), 88, sk.DateTileText, TfDay);
-            double wy = y + 8, dy = y + 18, my = y + th - 28;
-            if (dayCustom)
-            {
-                // 書体ごとに字面 (実際に塗られる範囲) の位置が違うので、測って置く。
-                // 曜日の上と年月の下の余白をそろえ、数字は曜日と年月のちょうど間に来るようにする
-                FormattedText wf = Cached(wd, 17, sk.DateTileText, TfN, 0), mf = Cached(ym, 15, sk.DateTileText, TfN, 0);
-                double shift = Math.Round(((y + th - my - InkBottom(mf)) - (wy - y + InkTop(wf))) / 2);
-                wy += shift; my += shift;
-                double mid = (wy + InkBottom(wf) + my + InkTop(mf)) / 2;
-                dy = Math.Round(mid - (InkTop(day) + InkBottom(day)) / 2);
-            }
+            // 書体ごとに字面 (実際に塗られる範囲) の位置が違うので、測って置く。
+            // 曜日の上と年月の下の余白をそろえ、数字は曜日と年月のちょうど間に来るようにする
+            double wy = y + 8, my = y + th - 28;
+            FormattedText wf = Cached(wd, 17, sk.DateTileText, TfN, 0), mf = Cached(ym, 15, sk.DateTileText, TfN, 0);
+            double shift = Math.Round(((y + th - my - InkBottom(mf)) - (wy - y + InkTop(wf))) / 2);
+            wy += shift; my += shift;
+            double mid = (wy + InkBottom(wf) + my + InkTop(mf)) / 2;
+            double dy = Math.Round(mid - (InkTop(day) + InkBottom(day)) / 2);
             T(dc, wd, x + ColW / 2, wy, 17, sk.DateTileText, 2);
             dc.DrawText(day, new Point(x + (ColW - day.Width) / 2, dy));
             T(dc, ym, x + ColW / 2, my, 15, sk.DateTileText, 2);

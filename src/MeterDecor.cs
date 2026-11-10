@@ -219,7 +219,7 @@ namespace DeskMeter
             double horizon = contentH * 0.64, bottom = contentH;
             double cx = contentW / 2;
             double sunR = Math.Min(contentW, contentH) * 0.2;
-            var sun = new LinearGradientBrush(Color.FromArgb(90, 255, 209, 102), Color.FromArgb(90, 255, 79, 216), 90);
+            var sun = new LinearGradientBrush(Color.FromArgb(60, 255, 209, 102), Color.FromArgb(60, 255, 79, 216), 90);   // 上に載る文字が読める薄さに
             sun.Freeze();
             var clipTop = new RectangleGeometry(new Rect(0, 0, contentW, horizon));
             clipTop.Freeze();

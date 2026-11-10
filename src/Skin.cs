@@ -169,6 +169,23 @@ namespace DeskMeter
 
         public static Skin Get(string name)
         {
+            Skin builtIn = GetBuiltIn(name);
+            if (builtIn != null) return Polish(builtIn);   // 文字が読める色になっているかの仕上げ (SkinPolish.cs)
+            // 組み込みに無ければ skins\<名前>.json。読めなければ Classic
+            if (!string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
+            {
+                string path = Path.Combine(SkinDir, name + ".json");
+                if (File.Exists(path))
+                {
+                    Skin s = FromFile(path);
+                    if (s != null) return s;
+                }
+            }
+            return Polish(Classic());
+        }
+
+        static Skin GetBuiltIn(string name)
+        {
             switch (name)
             {
                 case "Cyberpunk": return Cyberpunk();
@@ -197,17 +214,7 @@ namespace DeskMeter
                 case "Aurora": return Aurora();
                 case "Mono": return Mono();
             }
-            // 組み込みに無ければ skins\<名前>.json。読めなければ Classic
-            if (!string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
-            {
-                string path = Path.Combine(SkinDir, name + ".json");
-                if (File.Exists(path))
-                {
-                    Skin s = FromFile(path);
-                    if (s != null) return s;
-                }
-            }
-            return Classic();
+            return null;
         }
 
         // ---------------------------------------------------------------- ユーザー定義スキン (skins\*.json)
@@ -228,6 +235,8 @@ namespace DeskMeter
                 Magenta, Violet, Blue, Track, GraphBg, Separator, GraphBorder, GraphGrid,
                 CalHead, Today, CalSun, CalSat, DateTile, DateTileText,
                 Sun, CloudLight, CloudDark, Rain, Snow, MoonLit, MoonDark;
+            public string TileIcon;         // 見出しアイコンの色 (無指定なら Title)
+            public string TodayText;        // カレンダーの「今日」の文字の色 (無指定なら Title)
             public string[] Palette;        // コア / プロセスの色 (1 つ以上)
             public string[] Tiles;          // 見出しアイコンの背景 6 色: GPU, CPU, Network, Drives, TopCpu, TopMemory
             // 見た目の拡張
@@ -351,6 +360,7 @@ namespace DeskMeter
                 s.CalHead = ctx.Brush("CalHead", f.CalHead, s.CalHead); s.Today = ctx.Brush("Today", f.Today, s.Today);
                 s.CalSun = ctx.Brush("CalSun", f.CalSun, s.CalSun); s.CalSat = ctx.Brush("CalSat", f.CalSat, s.CalSat);
                 s.DateTile = ctx.Brush("DateTile", f.DateTile, s.DateTile); s.DateTileText = ctx.Brush("DateTileText", f.DateTileText, s.DateTileText);
+                s.TileIcon = ctx.Brush("TileIcon", f.TileIcon, null); s.TodayText = ctx.Brush("TodayText", f.TodayText, null);
                 s.Sun = ctx.Brush("Sun", f.Sun, s.Sun); s.CloudLight = ctx.Brush("CloudLight", f.CloudLight, s.CloudLight); s.CloudDark = ctx.Brush("CloudDark", f.CloudDark, s.CloudDark);
                 s.Rain = ctx.Brush("Rain", f.Rain, s.Rain); s.Snow = ctx.Brush("Snow", f.Snow, s.Snow);
                 s.MoonLit = ctx.Brush("MoonLit", f.MoonLit, s.MoonLit); s.MoonDark = ctx.Brush("MoonDark", f.MoonDark, s.MoonDark);
@@ -454,8 +464,8 @@ namespace DeskMeter
             s.Magenta = B("#E06BE0"); s.Violet = B("#A98BFF"); s.Blue = B("#4C8DFF");
             s.Track = B("#26292E"); s.GraphBg = B("#0D0F12"); s.Separator = B("#2C6AA0");
             s.GraphBorder = P(B("#30353B"), 1); s.GraphGrid = P(B("#1C2025"), 1);
-            s.CalHead = B("#1D4A2A"); s.Today = B("#F26A1B"); s.CalSun = s.Danger; s.CalSat = s.Blue;
-            s.DateTile = Gradient("#FF8A2A", "#D9480F"); s.DateTileText = s.Title;
+            s.CalHead = B("#1D4A2A"); s.Today = B("#C4440D"); s.CalSun = s.Danger; s.CalSat = s.Blue;
+            s.DateTile = Gradient("#E5560B", "#B5360A"); s.DateTileText = s.Title;   // 白い文字が読める濃さのオレンジ
             s.DateTileFont = "Bahnschrift, Segoe UI"; s.DateTileWeight = "semibold";   // 日付の数字は DIN 系のやや太字 (Windows 10 1709 以降に標準。無ければ Segoe UI の太字)
             s.Sun = B("#FFC93C"); s.CloudLight = B("#D5DAE0"); s.CloudDark = B("#8C949E"); s.Rain = B("#5CC8FF");
             s.Snow = s.Title; s.MoonLit = B("#EDE9D6"); s.MoonDark = B("#2B2F36");
@@ -496,7 +506,8 @@ namespace DeskMeter
             s.Track = B("#1A0F33"); s.GraphBg = B("#0C0520"); s.Separator = B("#FF2BD6");
             s.GraphBorder = P(B("#3B2A6B"), 1); s.GraphGrid = P(B("#1C1240"), 1);
             s.CalHead = B("#2A1052"); s.Today = B("#FF2BD6"); s.CalSun = B("#FF2E63"); s.CalSat = B("#00E5FF");
-            s.DateTile = Gradient("#FF2BD6", "#5B10B8"); s.DateTileText = s.Title;
+            s.DateTile = Gradient("#D11FB6", "#5B10B8"); s.DateTileText = s.Title;
+            s.DateTileWeight = "semibold";
             s.Sun = B("#FFE600"); s.CloudLight = B("#B9B3E0"); s.CloudDark = B("#6E6496"); s.Rain = B("#00E5FF");
             s.Snow = s.Title; s.MoonLit = B("#E8E4FF"); s.MoonDark = B("#2A1A4A");
             s.Palette = Brushes("#00E5FF", "#FF2BD6", "#FFE600", "#3DFFB3", "#B388FF", "#FF7A00", "#3D7BFF",
@@ -523,6 +534,7 @@ namespace DeskMeter
             s.GraphBorder = P(B("#5A3F10"), 1); s.GraphGrid = P(B("#1E1400"), 1);
             s.CalHead = B("#3A2800"); s.Today = B("#FFB000"); s.CalSun = B("#FF6A2A"); s.CalSat = B("#E09A1A");
             s.DateTile = B("#FFB000"); s.DateTileText = B("#1A1000");
+            s.DateTileWeight = "bold";
             s.Sun = B("#FFC84A"); s.CloudLight = B("#D9A040"); s.CloudDark = B("#8A6020"); s.Rain = B("#FFB000");
             s.Snow = B("#FFD27F"); s.MoonLit = B("#FFD27F"); s.MoonDark = B("#2A1C00");
             s.Palette = Brushes("#FFB000", "#FFD27F", "#E09A1A", "#FF8C00", "#FFC84A", "#C07818", "#FFE3A8");
@@ -545,7 +557,8 @@ namespace DeskMeter
             s.Track = B("#DDE3EA"); s.GraphBg = B("#FFFFFF"); s.Separator = B("#9DB5D1");
             s.GraphBorder = P(B("#CBD3DC"), 1); s.GraphGrid = P(B("#EEF1F4"), 1);
             s.CalHead = B("#D3EAD8"); s.Today = B("#F76707"); s.CalSun = B("#C92A2A"); s.CalSat = B("#1C64D1");
-            s.DateTile = Gradient("#FF922B", "#E8590C"); s.DateTileText = B("#FFFFFF");
+            s.DateTile = Gradient("#E8590C", "#C2410C"); s.DateTileText = B("#FFFFFF");
+            s.DateTileFont = "Bahnschrift, Segoe UI"; s.DateTileWeight = "semibold";
             s.Sun = B("#F59F00"); s.CloudLight = B("#B8C2CC"); s.CloudDark = B("#7C8792"); s.Rain = B("#1C7ED6");
             s.Snow = B("#5C7CFA"); s.MoonLit = B("#495057"); s.MoonDark = B("#DEE2E6");
             s.Palette = Brushes("#2B8A3E", "#C29200", "#E8590C", "#C92A2A", "#A61E8E", "#6741D9", "#1C64D1",
