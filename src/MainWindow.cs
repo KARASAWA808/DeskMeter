@@ -126,6 +126,7 @@ namespace DeskMeter
 
         WF.NotifyIcon tray;
         WF.ContextMenuStrip menu;
+        DiagnosisDialog diagnosisDialog;
         WF.ToolStripMenuItem miDesktop, miTopmost, miNormal, miLock, miClick, miAuto, miOpacity, miScale, miPanels, miVisible,
             miInterval, miSkin, miMonitor, miEdit, miHistory, miHotkey, miShadow, miImages, miMascotPlace, miMascotSize, miBgImageOpacity, miUndoLayout, miClockCal, miWeatherUnits, miFolders, miHotkeyEdit, miHotkeyClick, miHover, miHideMax, miLook, miWindow, miMeasure, miSettings, miAlerts, miPing;
 
@@ -747,6 +748,7 @@ namespace DeskMeter
                 miInterval.DropDownItems.Add(mi);
             }
             miMeasure.DropDownItems.Add(Item("天気の場所を設定...", ShowLocationDialog));   // いちばん最初に変えたい項目なので先頭
+            miMeasure.DropDownItems.Add(Item("PC の重さを診断...", ShowDiagnosisDialog));
             miMeasure.DropDownItems.Add(Item("負荷を抑える設定にする (3 秒更新・秒なし・影なし・コア 2 列)", ApplyLowLoad));
             miMeasure.DropDownItems.Add(miInterval);
 
@@ -1038,6 +1040,18 @@ namespace DeskMeter
             if (openDialog == null) return false;
             try { openDialog.Activate(); } catch { }
             return true;
+        }
+
+        void ShowDiagnosisDialog()
+        {
+            if (diagnosisDialog == null)
+            {
+                diagnosisDialog = new DiagnosisDialog();
+                diagnosisDialog.Closed += delegate { diagnosisDialog = null; };
+                diagnosisDialog.Show();
+            }
+            if (diagnosisDialog.WindowState == WindowState.Minimized) diagnosisDialog.WindowState = WindowState.Normal;
+            diagnosisDialog.Activate();
         }
 
         void ShowNotesDialog()
@@ -1679,6 +1693,7 @@ namespace DeskMeter
 
         void Cleanup()
         {
+            if (diagnosisDialog != null) diagnosisDialog.CancelMeasurement();
             timer.Stop();
             foreach (PanelWindow f in floats) { try { f.Close(); } catch { } }
             floats.Clear();
